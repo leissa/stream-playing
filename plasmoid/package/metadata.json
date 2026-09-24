@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "roland.leissa@informatik.uni-goettingen.de",
+                "Name": "Roland Leißa"
+            }
+        ],
+        "Category": "Multimedia",
+        "Description": "Browse and control a self-hosted music library on Navidrome, Subsonic or Kodi",
+        "Icon": "media-playback-start",
+        "Id": "org.kde.plasma.streamplay",
+        "License": "GPL-3.0-or-later",
+        "Name": "Stream Playing",
+        "Version": "1.0.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

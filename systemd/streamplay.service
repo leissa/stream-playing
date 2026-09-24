@@ -1,0 +1,18 @@
+[Unit]
+Description=Stream Playing music service
+Documentation=https://github.com/
+# Playback needs the audio stack and MPRIS needs the session bus, both of
+# which belong to the graphical session.
+After=graphical-session.target sound.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/streamplayd
+Restart=on-failure
+RestartSec=3
+# Music should keep playing even when the machine is busy.
+Nice=-5
+
+[Install]
+WantedBy=default.target

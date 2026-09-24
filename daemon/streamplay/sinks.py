@@ -1,0 +1,145 @@
+"""The local audio sink: mpv playing whatever URL it is handed."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from .backends.base import BackendError, Sink, StreamTarget
+from .models import Track
+from .mpvproc import Mpv, MpvError
+
+log = logging.getLogger(__name__)
+
+
+class MpvSink(Sink):
+    id = "local"
+    name = "This computer"
+    accepts_any_url = True
+
+    def __init__(self, initial_volume: float = 0.7) -> None:
+        super().__init__()
+        self.state.volume = initial_volume
+        self._mpv = Mpv(self._on_event, self._on_property)
+        self._stopping = False
+
+    async def start(self) -> None:
+        await self._mpv.start()
+        await self._mpv.set_property("volume", round(self.state.volume * 100))
+
+    async def close(self) -> None:
+        await self._mpv.close()
+
+    # ----------------------------------------------------------- mpv events
+
+    async def _on_event(self, name: str, payload: dict) -> None:
+        if name == "end-file":
+            reason = payload.get("reason")
+            if self._stopping:
+                # Our own stop/replace; the player already knows what happens next.
+                self._stopping = False
+                return
+            if reason == "eof":
+                self.state.status = "stopped"
+                await self._ended("eof")
+            elif reason == "error":
+                self.state.status = "stopped"
+                self.state.error = "Playback failed"
+                await self._ended("error")
+        elif name == "file-loaded":
+            self.state.error = None
+            self._changed()
+        elif name == "ipc-closed":
+            self.state.status = "stopped"
+            self.state.error = "The audio engine stopped unexpectedly"
+            self._changed()
+
+    async def _on_property(self, name: str, value: Any) -> None:
+        if name == "time-pos" and value is not None:
+            self.state.position = float(value)
+            self._changed()
+        elif name == "duration" and value:
+            self.state.duration = float(value)
+            self._changed()
+        elif name == "pause" and value is not None and self.state.status != "stopped":
+            self.state.status = "paused" if value else "playing"
+            self._changed()
+        elif name == "volume" and value is not None:
+            volume = max(0.0, min(1.0, float(value) / 100.0))
+            if abs(volume - self.state.volume) > 0.001:
+                self.state.volume = volume
+                self._changed()
+        elif name == "cache-buffering-state":
+            buffering = value is not None and float(value) < 100
+            if buffering != self.state.buffering:
+                self.state.buffering = buffering
+                self._changed()
+
+    # ------------------------------------------------------------- playback
+
+    async def _ensure_running(self) -> None:
+        if not self._mpv.alive:
+            await self._mpv.start()
+            await self._mpv.set_property("volume", round(self.state.volume * 100))
+
+    async def play(self, target: StreamTarget, track: Track) -> None:
+        if not target.url:
+            raise BackendError(f"Cannot play {track.title} on this computer")
+        await self._ensure_running()
+
+        self._stopping = True  # the replace produces an end-file we must ignore
+        self.state.status = "playing"
+        self.state.position = 0.0
+        self.state.duration = track.duration
+        self.state.error = None
+        try:
+            await self._mpv.set_property("pause", False)
+            await self._mpv.loadfile(target.url, "replace")
+        except MpvError as exc:
+            self._stopping = False
+            self.state.status = "stopped"
+            self.state.error = str(exc)
+            self._changed()
+            raise BackendError(str(exc)) from exc
+        self._changed()
+
+    async def resume(self) -> None:
+        await self._ensure_running()
+        await self._mpv.set_property("pause", False)
+        self.state.status = "playing"
+        self._changed()
+
+    async def pause(self) -> None:
+        if self.state.status == "stopped":
+            return
+        await self._mpv.set_property("pause", True)
+        self.state.status = "paused"
+        self._changed()
+
+    async def stop(self) -> None:
+        self._stopping = True
+        self.state.status = "stopped"
+        self.state.position = 0.0
+        self.state.buffering = False
+        try:
+            await self._mpv.stop()
+        except MpvError:
+            self._stopping = False
+        self._changed()
+
+    async def seek(self, position: float) -> None:
+        try:
+            await self._mpv.command("seek", max(0.0, position), "absolute")
+        except MpvError as exc:
+            log.debug("seek failed: %s", exc)
+            return
+        self.state.position = max(0.0, position)
+        self._changed()
+
+    async def set_volume(self, volume: float) -> None:
+        self.state.volume = max(0.0, min(1.0, float(volume)))
+        try:
+            await self._mpv.set_property("volume", round(self.state.volume * 100))
+        except MpvError:
+            pass
+        self._changed()

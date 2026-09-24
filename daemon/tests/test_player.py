@@ -1,0 +1,309 @@
+"""Exercises the queue against a real mpv process.
+
+Run with ``python3 tests/test_player.py`` from the ``daemon`` directory. The
+tones are generated on the fly, so the only requirement is that mpv is
+installed and has some audio output available (a null sink is fine).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import math
+import pathlib
+import struct
+import sys
+import tempfile
+import wave
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from streamplay.backends.base import BackendError, Sink, StreamTarget
+from streamplay.models import Track
+from streamplay.player import UnifiedPlayer
+from streamplay.sinks import MpvSink
+
+FAILURES: list[str] = []
+
+
+def check(label: str, condition: bool) -> None:
+    print(("PASS  " if condition else "FAIL  ") + label)
+    if not condition:
+        FAILURES.append(label)
+
+
+def make_tones(directory: pathlib.Path, count: int, seconds: float = 3.0) -> None:
+    for index in range(1, count + 1):
+        freq = 180 + index * 70
+        with wave.open(str(directory / f"{index}.wav"), "w") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(8000)
+            handle.writeframes(b"".join(
+                struct.pack("<h", int(3000 * math.sin(2 * math.pi * freq * t / 8000)))
+                for t in range(int(8000 * seconds))
+            ))
+
+
+class FakeLibrary:
+    """Stands in for a music service: maps a track back to a local file."""
+
+    def __init__(self, source: str, directory: pathlib.Path) -> None:
+        self.source = source
+        self.directory = directory
+        self.scrobbles: list[tuple[str, bool]] = []
+
+    def tracks(self, count: int) -> list[Track]:
+        return [
+            Track(id=str(i), title=f"{self.source} {i}", artist="Test",
+                  album="Tones", duration=3.0, backend="fake", source=self.source)
+            for i in range(1, count + 1)
+        ]
+
+    async def stream_target(self, track: Track) -> StreamTarget:
+        return StreamTarget(url=(self.directory / f"{track.id}.wav").as_uri(),
+                            source=self.source)
+
+    async def scrobble(self, track: Track, submission: bool) -> None:
+        self.scrobbles.append((track.id, submission))
+
+
+class Router:
+    """The hub's role: send each track to the service it came from."""
+
+    def __init__(self, *libraries: FakeLibrary) -> None:
+        self.libraries = {lib.source: lib for lib in libraries}
+
+    async def stream_target(self, track: Track) -> StreamTarget:
+        library = self.libraries.get(track.source)
+        if library is None:
+            raise BackendError(f"{track.source} is not connected")
+        return await library.stream_target(track)
+
+    async def scrobble(self, track: Track, submission: bool) -> None:
+        library = self.libraries.get(track.source)
+        if library is not None:
+            await library.scrobble(track, submission)
+
+
+class FakeSink(Sink):
+    """A silent output, so switching destinations can be tested offline."""
+
+    id = "fake"
+    name = "Fake output"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.played: list[str] = []
+
+    async def play(self, target: StreamTarget, track: Track) -> None:
+        self.played.append(track.title)
+        self.state.status = "playing"
+        self.state.position = 0.0
+        self.state.duration = track.duration
+        self._changed()
+
+    async def resume(self) -> None:
+        self.state.status = "playing"
+        self._changed()
+
+    async def pause(self) -> None:
+        self.state.status = "paused"
+        self._changed()
+
+    async def stop(self) -> None:
+        self.state.status = "stopped"
+        self.state.position = 0.0
+        self._changed()
+
+    async def seek(self, position: float) -> None:
+        self.state.position = position
+        self._changed()
+
+    async def set_volume(self, volume: float) -> None:
+        self.state.volume = volume
+        self._changed()
+
+
+async def main() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        navidrome_dir = root / "navidrome"
+        kodi_dir = root / "kodi"
+        navidrome_dir.mkdir()
+        kodi_dir.mkdir()
+        make_tones(navidrome_dir, 4)
+        make_tones(kodi_dir, 4)
+
+        navidrome = FakeLibrary("navidrome", navidrome_dir)
+        kodi = FakeLibrary("kodi-box", kodi_dir)
+        router = Router(navidrome, kodi)
+
+        player = UnifiedPlayer(router, lambda event, data: None, {"volume": 0.0})
+        local = MpvSink(0.0)
+        await local.start()
+        await player.set_sink(local)
+
+        # ---------------------------------------------------------- basics
+        await player.enqueue(navidrome.tracks(4), mode="replace")
+        await asyncio.sleep(1.0)
+        state = player.state()
+        check("replace starts playing the first track",
+              state["status"] == "playing" and state["index"] == 0)
+        check("queue holds four tracks", len(player.queue()["tracks"]) == 4)
+        check("every entry has a stable uid",
+              all(t["uid"] for t in player.queue()["tracks"]))
+
+        await player.pause()
+        await asyncio.sleep(0.2)
+        check("pause", player.state()["status"] == "paused")
+        await player.play()
+        await asyncio.sleep(0.3)
+        check("resume", player.state()["status"] == "playing")
+
+        await player.next()
+        await asyncio.sleep(0.8)
+        check("next moves on", player.state()["index"] == 1)
+        await player.seek(2.0)
+        await asyncio.sleep(0.4)
+        check("seek lands where asked", player.state()["position"] >= 1.8)
+        await player.previous()
+        await asyncio.sleep(0.5)
+        check("previous restarts the current track when past 3s is false",
+              player.state()["index"] == 0)
+
+        await player.play_index(2)
+        await asyncio.sleep(4.0)
+        state = player.state()
+        check("advances by itself at end of file", state["index"] == 3)
+        check("the track it advanced to really plays",
+              state["status"] == "playing" and not state["error"]
+              and state["position"] > 0.1)
+
+        # ------------------------------------------------- repeat / shuffle
+        await player.set_repeat("one")
+        await player.play_index(0)
+        await asyncio.sleep(4.0)
+        state = player.state()
+        check("repeat one stays put", state["index"] == 0)
+        check("repeat one keeps the audio going",
+              state["status"] == "playing" and not state["error"])
+        await player.next()
+        await asyncio.sleep(0.5)
+        check("an explicit next escapes repeat one", player.state()["index"] == 1)
+        await player.set_repeat("none")
+
+        await player.enqueue(navidrome.tracks(4), mode="replace")
+        await asyncio.sleep(0.6)
+        await player.set_shuffle(True)
+        visited = {player.state()["index"]}
+        for _ in range(3):
+            await player.next()
+            await asyncio.sleep(0.4)
+            visited.add(player.state()["index"])
+        check("shuffle visits every track exactly once", visited == {0, 1, 2, 3})
+        check("shuffle stops at the end without repeat",
+              player.state()["canNext"] is False)
+        await player.set_repeat("all")
+        await player.next()
+        await asyncio.sleep(0.4)
+        check("repeat all wraps around", player.state()["index"] in {0, 1, 2, 3})
+        await player.set_repeat("none")
+        await player.set_shuffle(False)
+
+        # ------------------------------------------------------ queue edits
+        await player.enqueue(navidrome.tracks(4), mode="replace")
+        await asyncio.sleep(0.6)
+        await player.play_index(1)
+        await asyncio.sleep(0.4)
+        await player.move(3, 0)
+        check("moving an entry shifts the playing index", player.state()["index"] == 2)
+        check("the moved entry is now first",
+              player.queue()["tracks"][0]["title"] == "navidrome 4")
+
+        await player.remove([0])
+        check("removing ahead of the current entry shifts it back",
+              player.state()["index"] == 1)
+        playing = player.state()["track"]["title"]
+        await player.remove([1])
+        await asyncio.sleep(0.7)
+        state = player.state()
+        check("removing what is playing moves on rather than stopping",
+              state["track"]["title"] != playing and state["status"] == "playing")
+
+        # -------------------------------------------- one queue, two sources
+        mixed = [navidrome.tracks(4)[0], kodi.tracks(4)[0],
+                 navidrome.tracks(4)[1], kodi.tracks(4)[1]]
+        await player.enqueue(mixed, mode="replace")
+        await asyncio.sleep(1.0)
+        sources = [t["source"] for t in player.queue()["tracks"]]
+        check("the queue interleaves both services",
+              sources == ["navidrome", "kodi-box", "navidrome", "kodi-box"])
+        check("it starts on the first service's track",
+              player.state()["track"]["source"] == "navidrome")
+        await player.next()
+        await asyncio.sleep(1.0)
+        state = player.state()
+        check("crossing into the other service keeps playing",
+              state["track"]["source"] == "kodi-box"
+              and state["status"] == "playing" and not state["error"])
+        await player.next()
+        await asyncio.sleep(1.0)
+        check("and crosses back again",
+              player.state()["track"]["source"] == "navidrome"
+              and player.state()["status"] == "playing")
+
+        # ------------------------------------------------- output switching
+        await player.play_index(0)
+        await asyncio.sleep(1.5)
+        before = player.state()
+        fake = FakeSink()
+        await player.set_sink(fake)
+        await asyncio.sleep(0.2)
+        check("switching output keeps the same track",
+              player.state()["track"]["uid"] == before["track"]["uid"])
+        check("the new output was handed the track", len(fake.played) == 1)
+        check("playback continues on the new output",
+              player.state()["status"] == "playing")
+        check("the reported output changed", player.state()["output"] == "fake")
+        check("roughly the same position is restored",
+              fake.state.position >= 1.0)
+
+        await player.set_sink(local)
+        await asyncio.sleep(0.5)
+        check("switching back works", player.state()["output"] == "local")
+
+        # -------------------------------------- a source that went offline
+        orphan = Track(id="1", title="Orphan", duration=3.0,
+                       backend="fake", source="not-connected")
+        await player.enqueue([orphan], mode="replace")
+        await asyncio.sleep(0.6)
+        state = player.state()
+        check("a track from a disconnected service reports an error",
+              bool(state["error"]) and state["status"] == "stopped")
+
+        # ------------------------------------------------------------- misc
+        await player.enqueue(navidrome.tracks(2), mode="replace")
+        await asyncio.sleep(0.5)
+        await player.set_volume(0.33)
+        check("volume is applied", abs(player.state()["volume"] - 0.33) < 0.02)
+        await player.clear()
+        check("clear empties the queue and stops",
+              player.queue()["tracks"] == []
+              and player.state()["status"] == "stopped")
+
+        check("a play was reported to the service it came from",
+              any(sub for _, sub in navidrome.scrobbles))
+
+        await player.set_sink(None, carry_over=False)
+        await local.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    print()
+    if FAILURES:
+        print(f"{len(FAILURES)} check(s) failed:")
+        for name in FAILURES:
+            print("  -", name)
+        sys.exit(1)
+    print("all checks passed")

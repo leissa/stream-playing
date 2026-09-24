@@ -1,0 +1,37 @@
+.pragma library
+
+/* Shared display helpers. */
+
+function duration(seconds) {
+    if (!seconds || seconds < 0 || !isFinite(seconds)) {
+        return "0:00";
+    }
+    const total = Math.floor(seconds);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    const pad = n => (n < 10 ? "0" + n : "" + n);
+    return hours > 0 ? hours + ":" + pad(minutes) + ":" + pad(secs)
+                     : minutes + ":" + pad(secs);
+}
+
+function elide(text, limit) {
+    if (!text) {
+        return "";
+    }
+    return text.length > limit ? text.substring(0, limit - 1) + "…" : text;
+}
+
+function subtitle(track) {
+    if (!track) {
+        return "";
+    }
+    const parts = [];
+    if (track.artist) {
+        parts.push(track.artist);
+    }
+    if (track.album) {
+        parts.push(track.album);
+    }
+    return parts.join(" — ");
+}
