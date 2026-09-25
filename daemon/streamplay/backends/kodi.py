@@ -370,6 +370,8 @@ class KodiSink(Sink):
                 self.state.position = 0.0
                 self._changed()
         elif method in ("Player.OnPlay", "Player.OnResume", "Player.OnAVStart"):
+            # Opening a file on an idle Kodi sends no OnStop to consume the flag.
+            self._expect_stop = False
             self.state.status = "playing"
             await self._sync()
         elif method == "Player.OnPause":

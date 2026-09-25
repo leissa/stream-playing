@@ -13,6 +13,7 @@ cd daemon
 python3 tests/test_player.py      # queue, shuffle, repeat, output switching, real mpv
 python3 tests/test_protocol.py    # control protocol, two services connected
 python3 tests/test_mpd.py         # MPD library + output against tests/fake_mpd.py
+python3 tests/test_kodi.py        # Kodi output against scripted notifications
 
 systemctl --user stop streamplay                  # before running by hand
 PYTHONPATH=daemon python3 -m streamplay -vv       # also --port --host --no-mpris --config
