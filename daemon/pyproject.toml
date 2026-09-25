@@ -16,8 +16,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/leissa/stream-playing"
-Issues = "https://github.com/leissa/stream-playing/issues"
+Homepage = "https://github.com/leissa/streamplay"
+Issues = "https://github.com/leissa/streamplay/issues"
 
 [project.scripts]
 streamplayd = "streamplay.__main__:main"

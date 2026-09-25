@@ -155,7 +155,7 @@ class Config:
         for field in SECRET_FIELDS:
             if data.get(field) and data[field] != existing.get(field):
                 secretstore.store(pid, field, str(data[field]),
-                                  f"Stream Playing: {merged.name}")
+                                  f"Streamplay: {merged.name}")
 
         self.profiles[pid] = merged
         self.save()

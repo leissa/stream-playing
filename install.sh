@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Install (or remove) the Stream Playing daemon and Plasma applet for the
+# Install (or remove) the Streamplay daemon and Plasma applet for the
 # current user. Nothing is written outside $HOME.
 
 set -euo pipefail
@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/streamplay"
 BIN_DIR="$HOME/.local/bin"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-APPLET_ID="org.kde.plasma.streamplay"
+APPLET_ID="io.github.leissa.streamplay"
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m==>\033[0m %s\n' "$*" >&2; }
@@ -97,7 +97,7 @@ case "${1:-install}" in
         install_service
         install_applet
         echo
-        say "Done. Add the “Stream Playing” widget to a panel or the desktop,"
+        say "Done. Add the “Streamplay” widget to a panel or the desktop,"
         say "then use its settings to add your Navidrome/Subsonic, Kodi or MPD servers."
         ;;
     uninstall|remove)

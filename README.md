@@ -1,4 +1,4 @@
-# Stream Playing
+# Streamplay
 
 A Plasma 6 widget for self-hosted music libraries. It connects to
 **Navidrome / Subsonic-compatible** servers, to **Kodi** and to **MPD** —
@@ -81,7 +81,7 @@ This copies the service to `~/.local/share/streamplay`, adds a
 `~/.local/bin/streamplayd` launcher, enables the `streamplay` systemd user
 service, and installs the widget. Nothing is written outside `$HOME`.
 
-Then add the **Stream Playing** widget to a panel or the desktop, open its
+Then add the **Streamplay** widget to a panel or the desktop, open its
 settings and add your servers.
 
 To remove everything again (your servers and settings are kept):
@@ -140,7 +140,7 @@ whether it is connected, and several can be on at once.
 | servers and settings | `~/.config/streamplay/config.json` (mode 0600) |
 | cover art cache | `~/.cache/streamplay/covers/` |
 | the service | `~/.local/share/streamplay/` |
-| the widget | `~/.local/share/plasma/plasmoids/org.kde.plasma.streamplay/` |
+| the widget | `~/.local/share/plasma/plasmoids/io.github.leissa.streamplay/` |
 
 Passwords are not in `config.json` but in the desktop's keyring, through the
 freedesktop Secret Service. On Plasma that is KDE Wallet with *Use KWallet for

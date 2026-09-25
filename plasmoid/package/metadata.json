@@ -7,15 +7,15 @@
                 "Name": "Roland Leißa"
             }
         ],
-        "BugReportUrl": "https://github.com/leissa/stream-playing/issues",
+        "BugReportUrl": "https://github.com/leissa/streamplay/issues",
         "Category": "Multimedia",
         "Description": "Browse and control a self-hosted music library on Navidrome, Subsonic, Kodi or MPD",
         "Icon": "media-playback-start",
-        "Id": "org.kde.plasma.streamplay",
+        "Id": "io.github.leissa.streamplay",
         "License": "GPL-3.0-or-later",
-        "Name": "Stream Playing",
+        "Name": "Streamplay",
         "Version": "1.0.0",
-        "Website": "https://github.com/leissa/stream-playing"
+        "Website": "https://github.com/leissa/streamplay"
     },
     "X-Plasma-API-Minimum-Version": "6.0"
 }

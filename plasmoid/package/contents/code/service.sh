@@ -13,7 +13,7 @@ python3 -m streamplay.check || exit 2
 systemctl --user stop "$unit" 2>/dev/null
 systemctl --user reset-failed "$unit" 2>/dev/null
 exec systemd-run --user --quiet --collect --unit="$unit" \
-    --description="Stream Playing music service (applet)" \
+    --description="Streamplay music service (applet)" \
     --setenv=PYTHONPATH="$here" --setenv=PYTHONDONTWRITEBYTECODE=1 \
     --property=Restart=on-failure --property=RestartSec=3 \
     python3 -m streamplay

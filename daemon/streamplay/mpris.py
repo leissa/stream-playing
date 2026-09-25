@@ -105,8 +105,8 @@ class MprisObject(dbus.service.Object):
             "CanQuit": dbus.Boolean(False),
             "CanRaise": dbus.Boolean(False),
             "HasTrackList": dbus.Boolean(False),
-            "Identity": dbus.String("Stream Playing"),
-            "DesktopEntry": dbus.String("org.kde.plasma.streamplay"),
+            "Identity": dbus.String("Streamplay"),
+            "DesktopEntry": dbus.String("io.github.leissa.streamplay"),
             "SupportedUriSchemes": dbus.Array([], signature="s"),
             "SupportedMimeTypes": dbus.Array([], signature="s"),
         }

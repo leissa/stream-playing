@@ -1,6 +1,6 @@
 [Unit]
-Description=Stream Playing music service
-Documentation=https://github.com/leissa/stream-playing
+Description=Streamplay music service
+Documentation=https://github.com/leissa/streamplay
 # Playback needs the audio stack and MPRIS needs the session bus, both of
 # which belong to the graphical session.
 After=graphical-session.target sound.target

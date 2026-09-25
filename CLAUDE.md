@@ -35,7 +35,7 @@ for types that do not exist. Plasma logs QML errors to the journal, and
 ```sh
 kpackagetool6 --type Plasma/Applet --upgrade plasmoid/package
 STAMP=$(date '+%Y-%m-%d %H:%M:%S'); sleep 1
-QT_QPA_PLATFORM=offscreen timeout 12 plasmoidviewer -a org.kde.plasma.streamplay -f planar >/dev/null 2>&1
+QT_QPA_PLATFORM=offscreen timeout 12 plasmoidviewer -a io.github.leissa.streamplay -f planar >/dev/null 2>&1
 journalctl --user --since "$STAMP" --no-pager | grep streamplay
 ```
 

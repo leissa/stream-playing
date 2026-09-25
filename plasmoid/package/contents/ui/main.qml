@@ -1,4 +1,4 @@
-/* Stream Playing: a thin view over the streamplay daemon. */
+/* Streamplay: a thin view over the streamplay daemon. */
 
 import QtQuick
 import QtQuick.Layouts
@@ -27,7 +27,7 @@ PlasmoidItem {
                      ? PlasmaCore.Types.ActiveStatus
                      : PlasmaCore.Types.PassiveStatus
 
-    toolTipMainText: hasTrack ? track.title : i18n("Stream Playing")
+    toolTipMainText: hasTrack ? track.title : i18n("Streamplay")
     toolTipSubText: {
         if (!client.online) {
             return i18n("The streamplay service is not running");
