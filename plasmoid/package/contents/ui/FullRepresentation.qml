@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Layouts
 
 import org.kde.plasma.components as PlasmaComponents
+import org.kde.plasma.plasmoid
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.kirigami as Kirigami
 
@@ -92,11 +93,46 @@ Item {
 
     // Nothing useful can be shown until the daemon answers.
     PlasmaExtras.PlaceholderMessage {
+        id: offline
+
+        readonly property var service: root.service
+
         anchors.centerIn: parent
         width: parent.width - Kirigami.Units.gridUnit * 4
         visible: !full.client.online
-        iconName: "network-disconnect"
-        text: i18n("The streamplay service is not running")
-        explanation: i18n("Start it with: systemctl --user start streamplay")
+        iconName: service.missing.length > 0 ? "dialog-warning" : "network-disconnect"
+        text: service.missing.length > 0 ? i18n("Some software is missing")
+                                         : i18n("The streamplay service is not running")
+        explanation: {
+            if (!service.bundled) {
+                return i18n("Start it with: systemctl --user start streamplay");
+            }
+            if (service.missing.length > 0) {
+                return i18n("Install these with your package manager: %1",
+                            service.missing.join(", "));
+            }
+            if (service.error) {
+                return service.error;
+            }
+            return i18n("Playback runs in a background service, so music keeps "
+                      + "going when the panel restarts. Starting it also starts "
+                      + "it automatically from now on.");
+        }
+        helpfulAction: Kirigami.Action {
+            enabled: !offline.service.busy
+            visible: offline.service.bundled
+            icon.name: offline.service.missing.length > 0 ? "view-refresh"
+                                                            : "media-playback-start"
+            text: offline.service.missing.length > 0 ? i18n("Check Again")
+                                                       : i18n("Start Service")
+            onTriggered: {
+                if (offline.service.missing.length > 0) {
+                    offline.service.check();
+                } else {
+                    Plasmoid.configuration.startService = true;
+                    offline.service.start();
+                }
+            }
+        }
     }
 }

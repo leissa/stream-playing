@@ -18,21 +18,13 @@ die()  { printf '\033[31m==>\033[0m %s\n' "$*" >&2; exit 1; }
 
 check_requirements() {
     local missing=()
-    command -v python3 >/dev/null || missing+=("python3")
-    command -v mpv     >/dev/null || missing+=("mpv")
+    command -v python3 >/dev/null || die "Missing requirements: python3"
     command -v kpackagetool6 >/dev/null || missing+=("kpackagetool6 (plasma-workspace)")
-    python3 -c "import requests"  2>/dev/null || missing+=("python-requests")
-    python3 -c "import websockets" 2>/dev/null || missing+=("python-websockets")
-    python3 -c "import secretstorage" 2>/dev/null || missing+=("python-secretstorage")
+    mapfile -t -O ${#missing[@]} missing < <(PYTHONPATH="$HERE/daemon" python3 -m streamplay.check)
 
     if [ ${#missing[@]} -gt 0 ]; then
         die "Missing requirements: ${missing[*]}"
     fi
-
-    # MPRIS is optional: without it everything works except the KDE media
-    # controls, so this is a warning rather than a hard failure.
-    python3 -c "import dbus, gi" 2>/dev/null \
-        || warn "python-dbus and python-gobject are missing; Now Playing / media keys will not work."
 }
 
 install_daemon() {

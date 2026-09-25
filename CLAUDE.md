@@ -18,6 +18,7 @@ systemctl --user stop streamplay                  # before running by hand
 PYTHONPATH=daemon python3 -m streamplay -vv       # also --port --host --no-mpris --config
 
 ./install.sh [uninstall]
+./package.sh                      # build/streamplay-<version>.plasmoid for the KDE Store
 kpackagetool6 --type Plasma/Applet --upgrade plasmoid/package   # applet only
 ```
 
@@ -165,6 +166,18 @@ resolves ids through the *creation context* and every pane is instantiated from
 `main.qml`. Config pages are a separate context, so `ConfigServers.qml` creates
 its own `Client` (`import ".." as Sp`) and reads the daemon host and port from
 `cfg_*` properties Plasma fills in.
+
+### Store package
+
+`package.sh` copies `daemon/streamplay` into `contents/code/`, next to
+`service.sh`. `Service.qml` runs that script through the `executable` data
+engine, and the script starts the daemon with `systemd-run` as the transient
+unit `streamplay-applet`, so it outlives plasmashell. The script exits 3
+without a bundled daemon (a dev install) and 2 with dependencies missing,
+printing them from `streamplay.check`. The daemon reports `version` and `home`
+in `hello`. `Service.qml` restarts a daemon that runs from its own `code`
+directory at another version, which is why `package.sh` refuses mismatched
+versions.
 
 ## Configuration and secrets
 

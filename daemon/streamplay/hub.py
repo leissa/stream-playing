@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlencode
 
-from . import secretstore
+from . import __version__, secretstore
 from .backends import (PLAYBACK_TYPES, Backend, BackendError, Sink,
                        SourceUnavailable, create_backend, create_sink)
 from .config import Config
@@ -433,4 +434,6 @@ class Hub:
             "outputs": self.outputs_json(),
             "profiles": self.config.redacted_profiles(),
             "settings": self.config.settings,
+            "daemon": {"version": __version__,
+                       "home": str(Path(__file__).resolve().parent.parent)},
         }

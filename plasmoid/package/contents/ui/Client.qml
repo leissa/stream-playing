@@ -26,6 +26,7 @@ QtObject {
     property var outputs: []
     property var profileList: []
     property var daemonSettings: ({})
+    property var daemonInfo: ({})
 
     readonly property var connectedSources:
         sources.filter(source => source.state === "connected")
@@ -157,6 +158,9 @@ QtObject {
         }
         if (snapshot.settings) {
             daemonSettings = snapshot.settings;
+        }
+        if (snapshot.daemon) {
+            daemonInfo = snapshot.daemon;
         }
     }
 

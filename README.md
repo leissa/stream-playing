@@ -68,7 +68,7 @@ Everything below is packaged on Arch and most other distributions:
 | --- | --- |
 | the service | `python`, `python-requests`, `python-websockets`, `python-secretstorage` |
 | local playback | `mpv` |
-| Now Playing / media keys | `python-dbus`, `python-gobject` |
+| MPRIS (Now Playing, media keys) | `python-dbus`, `python-gobject` |
 | the widget | `plasma-workspace` (Plasma 6) |
 
 ## Install
@@ -89,6 +89,17 @@ To remove everything again (your servers and settings are kept):
 ```sh
 ./install.sh uninstall
 ```
+
+### From the KDE Store
+
+`./package.sh` builds `build/streamplay-<version>.plasmoid`, which is the
+widget with the service bundled inside. After installing it through *Get New
+Widgets*, the widget offers **Start Service**. That runs the bundled service
+as the transient systemd user unit `streamplay-applet`, and from then on the
+widget starts it whenever it finds it not running. The requirements above
+still have to come from the distribution; the widget lists any that are
+missing. After a store update the widget restarts the service if it is still
+running the old version.
 
 ## Adding servers
 

@@ -12,6 +12,9 @@
     <entry name="daemonPort" type="Int">
       <default>8760</default>
     </entry>
+    <entry name="startService" type="Bool">
+      <default>false</default>
+    </entry>
   </group>
 
   <group name="Appearance">

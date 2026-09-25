@@ -13,6 +13,7 @@ PlasmoidItem {
     id: root
 
     readonly property Client client: sharedClient
+    readonly property Service service: sharedService
     readonly property var track: client.track
     readonly property bool playing: client.playback.status === "playing"
     readonly property bool hasTrack: !!track
@@ -49,6 +50,13 @@ PlasmoidItem {
         id: sharedClient
         host: Plasmoid.configuration.daemonHost
         port: Plasmoid.configuration.daemonPort
+    }
+
+    Service {
+        id: sharedService
+        client: sharedClient
+        appletVersion: Plasmoid.metaData.version
+        autoStart: Plasmoid.configuration.startService
     }
 
     compactRepresentation: CompactRepresentation {}

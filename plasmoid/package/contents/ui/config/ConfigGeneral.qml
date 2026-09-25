@@ -10,6 +10,7 @@ KCM.SimpleKCM {
 
     property alias cfg_daemonHost: hostField.text
     property alias cfg_daemonPort: portField.value
+    property alias cfg_startService: startService.checked
     property alias cfg_showTrackInPanel: trackInPanel.checked
     property alias cfg_panelTextLength: textLength.value
     property alias cfg_useAlbumArtIcon: albumArtIcon.checked
@@ -110,6 +111,11 @@ KCM.SimpleKCM {
             text: i18n("The streamplay service does the playing and holds the "
                      + "queue. Leave this at 127.0.0.1 unless you run it on "
                      + "another machine.")
+        }
+
+        QQC2.CheckBox {
+            id: startService
+            text: i18n("Start the bundled service when it is not running")
         }
 
         Item { Kirigami.FormData.isSection: true
