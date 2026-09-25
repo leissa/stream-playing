@@ -1,5 +1,7 @@
 # Streamplay
 
+[![tests](https://img.shields.io/github/actions/workflow/status/leissa/streamplay/tests.yml?branch=master&style=flat-square&logo=github&label=tests)](https://github.com/leissa/streamplay/actions/workflows/tests.yml)
+
 A Plasma 6 widget for self-hosted music libraries. It connects to
 **Navidrome / Subsonic-compatible** servers, to **Kodi** and to **MPD** —
 several of them at the same time — and puts everything into a single shared

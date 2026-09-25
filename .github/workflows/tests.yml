@@ -1,0 +1,48 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  daemon:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install dependencies
+        run: >
+          pacman -Syu --noconfirm --needed
+          git zip mpv python python-requests python-websockets
+          python-secretstorage python-dbus python-gobject
+
+      - uses: actions/checkout@v4
+
+      # The runner has no sound card.
+      - name: Configure mpv
+        run: |
+          mkdir -p ~/.config/mpv
+          echo ao=null > ~/.config/mpv/mpv.conf
+
+      - name: Dependency check
+        working-directory: daemon
+        run: python -m streamplay.check
+
+      - name: test_player
+        working-directory: daemon
+        run: python tests/test_player.py
+
+      - name: test_protocol
+        working-directory: daemon
+        run: python tests/test_protocol.py
+
+      - name: test_mpd
+        working-directory: daemon
+        run: python tests/test_mpd.py
+
+      - name: Build the store package
+        run: ./package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plasmoid
+          path: build/*.plasmoid
