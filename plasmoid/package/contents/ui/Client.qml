@@ -166,6 +166,8 @@ QtObject {
 
     function _applyState(next) {
         playback = next;
+        // Only a state push says the current track moved on; the queue event is for edits.
+        queueIndex = next.index;
         // The daemon repeats these every state push, and reassigning reloads the browser.
         if (next.sources) {
             _adopt("sources", next.sources);
