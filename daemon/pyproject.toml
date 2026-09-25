@@ -15,6 +15,10 @@ dependencies = [
     # (python-dbus, python-gobject) and are only needed for MPRIS.
 ]
 
+[project.urls]
+Homepage = "https://github.com/leissa/stream-playing"
+Issues = "https://github.com/leissa/stream-playing/issues"
+
 [project.scripts]
 streamplayd = "streamplay.__main__:main"
 
