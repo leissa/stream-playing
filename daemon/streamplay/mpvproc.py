@@ -88,6 +88,7 @@ class Mpv:
                 "--no-terminal",
                 "--audio-display=no",
                 "--gapless-audio=yes",
+                "--prefetch-playlist=yes",
                 "--keep-open=no",
                 "--force-window=no",
                 "--msg-level=all=warn",

@@ -313,6 +313,7 @@ async def main() -> None:
         await local.close()
 
         await test_first_track_advances(navidrome, router)
+        await test_gapless_handover(navidrome, router)
         await test_mpv_losing_its_socket()
 
 
@@ -326,6 +327,37 @@ async def test_first_track_advances(library, router) -> None:
     await asyncio.sleep(3.8)
     check("the first track after startup advances at its end",
           player.state()["index"] == 1 and player.state()["status"] == "playing")
+    await player.set_sink(None, carry_over=False)
+    await sink.close()
+
+
+async def test_gapless_handover(library, router) -> None:
+    """mpv moves on from its own playlist, and a queue edit re-targets what it holds."""
+    player = UnifiedPlayer(router, lambda event, data: None, {"volume": 0.0})
+    sink = MpvSink(0.0)
+    await sink.start()
+    await player.set_sink(sink)
+    tracks = library.tracks(4)
+    await player.enqueue(tracks[:2], mode="replace")
+    await asyncio.sleep(0.5)
+    await player.enqueue([tracks[3]], mode="next")
+    await asyncio.sleep(0.3)
+
+    modes: list[str] = []
+    loadfile = sink._mpv.loadfile
+
+    async def spy(url: str, mode: str = "replace") -> int | None:
+        modes.append(mode)
+        return await loadfile(url, mode)
+    sink._mpv.loadfile = spy
+
+    await asyncio.sleep(3.0)
+    state = player.state()
+    check("the handover advances the queue", state["index"] == 1 and state["status"] == "playing")
+    check("the track inserted as next is what plays",
+          player.queue()["tracks"][1]["id"] == "4"
+          and str(await sink._mpv.get_property("path")).endswith("/4.wav"))
+    check("mpv moved on without the track being loaded afresh", "replace" not in modes)
     await player.set_sink(None, carry_over=False)
     await sink.close()
 

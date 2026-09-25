@@ -1,0 +1,47 @@
+Summary:
+Your self-hosted music (Navidrome, Subsonic, Kodi, MPD) in one queue, right in your panel.
+
+Description:
+[b]Streamplay[/b] brings the music on your own servers into a Plasma panel: [b]Navidrome[/b] and other [b]Subsonic[/b]-compatible servers, [b]Kodi[/b] and [b]MPD[/b], several at once. Browse everything as one library, build a single queue from all of it, and choose where it plays: on this computer, on a Kodi box or on MPD.
+
+[b]Features[/b]
+[list]
+[*][b]All your servers at once.[/b] Each one has its own on/off switch. The library merges them, and a badge on every row shows where an item came from.
+[*][b]One queue for everything.[/b] A Navidrome album and a Kodi album can sit side by side and play one after the other.
+[*][b]Choose where it plays.[/b] Play on the local speakers, on Kodi or on MPD, and switch in the middle of a track without losing your place.
+[*][b]Gapless playback[/b] on this computer, with the next track buffered in advance.
+[*][b]Browse[/b] by album, artist, genre or playlist, and search across every connected server.
+[*][b]Edit the queue.[/b] Play next, add to the end, replace, drag to reorder, remove, shuffle and three repeat modes.
+[*][b]Works with the rest of KDE.[/b] Media keys, the Media Player widget, the lock screen and the volume OSD all control it through MPRIS.
+[*][b]Passwords stay in your keyring[/b] (KWallet, GNOME Keyring or KeePassXC via the Secret Service) and never go into a config file.
+[/list]
+
+[b]How it works: the background service[/b]
+A Plasma widget cannot play audio or register as a media player by itself, so Streamplay comes in two parts. The widget you see is only the interface. A small Python service does the playing, and it is [b]bundled inside this download[/b], so there is nothing else to fetch.
+
+[list=1]
+[*]Add the widget to a panel. The first time, it shows a [b]Start Service[/b] button.
+[*]Clicking it starts the bundled service as a systemd user unit ([i]streamplay-applet[/i]). It runs as you, only on 127.0.0.1, and writes nothing outside your home folder. No root access is needed.
+[*]After that, the widget starts the service whenever it finds it not running, for example after you log in.
+[*]The service runs separately from plasmashell, so [b]your music keeps playing when Plasma restarts[/b].
+[*]After a store update, the widget sees that the service is an older version and restarts it.
+[/list]
+
+[b]Dependencies[/b]
+The service relies on a few common packages from your distribution. Before starting it, the widget checks for them. If anything is missing, it shows [b]exactly which packages to install[/b] and has a [i]Check Again[/i] button, so you never have to guess from a vague error.
+
+[list]
+[*][b]Arch / Manjaro:[/b] python-requests python-websockets python-secretstorage python-dbus python-gobject mpv
+[*][b]Debian / Ubuntu / KDE neon:[/b] python3-requests python3-websockets python3-secretstorage python3-dbus python3-gi mpv
+[*][b]Fedora:[/b] python3-requests python3-websockets python3-secretstorage python3-dbus python3-gobject mpv (mpv comes from RPM Fusion)
+[*][b]openSUSE:[/b] python3-requests python3-websockets python3-SecretStorage python3-dbus-python python3-gobject mpv
+[/list]
+mpv plays the audio on this computer, and python-dbus plus python-gobject provide the media-key and Now Playing integration. Requires Plasma 6.
+
+[b]Getting started[/b]
+Open the widget's settings, go to [i]Music Servers[/i] and add a Navidrome/Subsonic, Kodi or MPD server. [i]Test Connection[/i] checks your settings before you save them. For Kodi, turn on [i]Settings → Services → Control → Allow remote control via HTTP[/i] (and allow control from other systems).
+
+[b]Removing it[/b]
+To stop the service: [i]systemctl --user stop streamplay-applet[/i]. It no longer starts once the widget is removed. Your servers and settings stay in ~/.config/streamplay/.
+
+[b]Prefer a permanent install?[/b] The GitHub repository has an install script that sets the service up as a regular systemd user service: [url=https://github.com/leissa/streamplay]github.com/leissa/streamplay[/url]. Bug reports and ideas are welcome there too.

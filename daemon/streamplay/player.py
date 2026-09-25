@@ -51,6 +51,8 @@ class UnifiedPlayer:
         self._sink: Sink | None = None
         self._pending_volume: float = float(settings.get("volume", 0.7))
         self._last_state: dict[str, Any] | None = None
+        #: Bumped on every change to what comes next, so a slow resolve cannot win.
+        self._preload_generation = 0
 
 
     @property
@@ -160,6 +162,31 @@ class UnifiedPlayer:
     def _queue_changed(self) -> None:
         self._emit("queue", self.queue())
         self._changed()
+        self._schedule_preload()
+
+    def _schedule_preload(self) -> None:
+        self._preload_generation += 1
+        asyncio.create_task(self._preload(self._preload_generation))
+
+    async def _preload(self, generation: int) -> None:
+        sink = self._sink
+        if sink is None:
+            return
+        index = self._peek(+1) if self._status != "stopped" else None
+        track = self._tracks[index] if index is not None else None
+        target = None
+        if track is not None:
+            try:
+                target = await self._resolver.stream_target(track)
+            except BackendError as exc:
+                log.debug("cannot preload %s: %s", track.title, exc)
+                track = None
+        if generation != self._preload_generation or sink is not self._sink:
+            return
+        try:
+            await sink.preload(target, track)
+        except Exception:
+            log.debug("preload failed", exc_info=True)
 
 
     def _rebuild_order(self) -> None:
@@ -252,6 +279,7 @@ class UnifiedPlayer:
         if seek_to > 1.0:
             await sink.seek(seek_to)
         self._changed()
+        self._schedule_preload()
         asyncio.create_task(self._scrobble(track, submission=False))
 
     async def _scrobble(self, track: Track, submission: bool) -> None:
@@ -327,6 +355,7 @@ class UnifiedPlayer:
 
     async def stop(self) -> None:
         self._status = "stopped"
+        self._preload_generation += 1
         if self._sink is not None:
             await self._sink.stop()
         self._changed()
@@ -370,12 +399,14 @@ class UnifiedPlayer:
         self._shuffle = bool(shuffle)
         self._rebuild_order()
         self._changed()
+        self._schedule_preload()
 
     async def set_repeat(self, mode: str) -> None:
         if mode not in REPEAT_MODES:
             raise ValueError(f"unknown repeat mode {mode!r}")
         self._repeat = mode
         self._changed()
+        self._schedule_preload()
 
 
     @staticmethod

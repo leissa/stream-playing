@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -23,6 +24,12 @@ class MpvSink(Sink):
         #: The entry we loaded; an end-file for any other is stale.
         self._entry: int | None = None
         self._entry_pending = False
+        #: ``(uid, entry)`` appended behind the current track, so mpv moves on gaplessly.
+        #: Keyed by queue uid because Subsonic salts every stream URL afresh.
+        self._next: tuple[str, int] | None = None
+        #: The queue uid mpv already moved on to, which the next ``play`` adopts.
+        self._handed_over: str | None = None
+        self._preload_lock = asyncio.Lock()
 
     async def start(self) -> None:
         await self._mpv.start()
@@ -42,7 +49,10 @@ class MpvSink(Sink):
                 return
             self._entry = None
             reason = payload.get("reason")
-            if reason == "eof":
+            if reason == "eof" and self._next is not None:
+                (self._handed_over, self._entry), self._next = self._next, None
+                await self._ended("eof")
+            elif reason == "eof":
                 self.state.status = "stopped"
                 await self._ended("eof")
             elif reason == "error":
@@ -89,11 +99,17 @@ class MpvSink(Sink):
             raise BackendError(f"Cannot play {track.title} on this computer")
         await self._ensure_running()
 
-        self._entry, self._entry_pending = None, False
+        handed_over, self._handed_over = self._handed_over, None
         self.state.status = "playing"
         self.state.position = 0.0
         self.state.duration = track.duration
         self.state.error = None
+        if track.uid and handed_over == track.uid and self._entry is not None:
+            self._changed()
+            return
+
+        self._entry, self._entry_pending = None, False
+        self._next = None
         try:
             await self._mpv.set_property("pause", False)
             entry = await self._mpv.loadfile(target.url, "replace")
@@ -120,6 +136,7 @@ class MpvSink(Sink):
 
     async def stop(self) -> None:
         self._entry, self._entry_pending = None, False
+        self._next, self._handed_over = None, None
         self.state.status = "stopped"
         self.state.position = 0.0
         self.state.buffering = False
@@ -145,3 +162,22 @@ class MpvSink(Sink):
         except MpvError:
             pass
         self._changed()
+
+    async def preload(self, target: StreamTarget | None, track: Track | None) -> None:
+        url = target.url if target and track and track.uid else None
+        async with self._preload_lock:
+            if self._next is not None and url and self._next[0] == track.uid:
+                return
+            # Appending to an idle mpv would start playing it.
+            if url and self._entry is None:
+                return
+            try:
+                if self._next is not None:
+                    self._next = None
+                    await self._mpv.command("playlist-clear")
+                if url:
+                    entry = await self._mpv.loadfile(url, "append")
+                    if entry is not None:
+                        self._next = (track.uid, entry)
+            except MpvError as exc:
+                log.debug("preload failed: %s", exc)

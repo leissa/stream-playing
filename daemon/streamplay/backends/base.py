@@ -174,5 +174,9 @@ class Sink(abc.ABC):
     @abc.abstractmethod
     async def set_volume(self, volume: float) -> None: ...
 
+    async def preload(self, target: StreamTarget | None, track: Track | None) -> None:
+        """A hint of what plays after the current track, None if nothing does."""
+        return None
+
     def capabilities(self) -> dict[str, bool]:
         return {"seek": True, "volume": True}

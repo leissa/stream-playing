@@ -19,6 +19,7 @@ PYTHONPATH=daemon python3 -m streamplay -vv       # also --port --host --no-mpri
 
 ./install.sh [uninstall]
 ./package.sh                      # build/streamplay-<version>.plasmoid for the KDE Store
+./screenshots/shoot.sh [name...]  # build/screenshots: store shots over an invented library
 kpackagetool6 --type Plasma/Applet --upgrade plasmoid/package   # applet only
 ```
 
@@ -88,6 +89,14 @@ alone. To add another: `BACKEND_TYPES` *and* `PLAYBACK_TYPES` in
 `backends/__init__.py`, a `create_sink` branch, and `Sink.source` — that last
 one is how `Hub._drop_source` tears an output down with its library without
 knowing any type names.
+
+### Gapless handover
+
+`UnifiedPlayer._preload` hands the sink `Sink.preload(next)` whenever what comes
+next changes. `MpvSink` appends it to mpv's playlist, so mpv moves on by itself
+with `--prefetch-playlist`, and the player's following `play` of that queue uid
+is adopted rather than reloaded (`_handed_over`). Match on `uid`, not URL:
+Subsonic salts every stream URL. Kodi and MPD ignore the hint.
 
 ### Telling eof from a user's stop
 
