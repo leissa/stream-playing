@@ -213,6 +213,24 @@ async def main() -> None:
             check("byYearDesc sorts newest first, undated last",
                   years == [2005, 2005, 1990, 1990, None, None])
 
+            # An artist's own albums have to follow the same setting, or the
+            # sort only appears to work until you drill into something.
+            reply = await applet.call("library.artistAlbums", id="a1",
+                                      source="alpha", sort="byYearDesc")
+            years = [a.get("year") for a in reply["result"]["albums"]]
+            check("artist albums honour byYearDesc", years == [2005, 1990, None])
+
+            reply = await applet.call("library.artistAlbums", id="a1",
+                                      source="alpha", sort="byYear")
+            years = [a.get("year") for a in reply["result"]["albums"]]
+            check("artist albums honour byYear", years == [1990, 2005, None])
+
+            reply = await applet.call("library.artistAlbums", id="a1",
+                                      source="alpha")
+            years = [a.get("year") for a in reply["result"]["albums"]]
+            check("artist albums default to year order",
+                  years == [1990, 2005, None])
+
             reply = await applet.call("library.genres")
             check("genres are merged and de-duplicated",
                   reply["result"]["genres"] == ["Alpha", "Beta", "Tone"])

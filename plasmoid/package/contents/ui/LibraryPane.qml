@@ -35,25 +35,42 @@ Item {
        order it was fetched with. */
     readonly property string albumSort: Plasmoid.configuration.albumSort
 
-    /* The top-level sections the user has chosen to keep. */
+    /* The top-level sections, in the order and selection the user chose. */
     readonly property var sections: {
-        const all = [
-            { mode: "albums", label: i18n("Albums"),
-              icon: "view-media-album-cover",
-              shown: Plasmoid.configuration.showAlbums },
-            { mode: "artists", label: i18n("Artists"),
-              icon: "view-media-artist",
-              shown: Plasmoid.configuration.showArtists },
-            { mode: "genres", label: i18n("Genres"),
-              icon: "view-media-genre",
-              shown: Plasmoid.configuration.showGenres },
-            { mode: "playlists", label: i18n("Playlists"),
-              icon: "view-media-playlist",
-              shown: Plasmoid.configuration.showPlaylists },
-        ];
-        const kept = all.filter(section => section.shown);
+        const known = {
+            albums: { mode: "albums", label: i18n("Albums"),
+                      icon: "view-media-album-cover",
+                      shown: Plasmoid.configuration.showAlbums },
+            artists: { mode: "artists", label: i18n("Artists"),
+                       icon: "view-media-artist",
+                       shown: Plasmoid.configuration.showArtists },
+            genres: { mode: "genres", label: i18n("Genres"),
+                      icon: "view-media-genre",
+                      shown: Plasmoid.configuration.showGenres },
+            playlists: { mode: "playlists", label: i18n("Playlists"),
+                         icon: "view-media-playlist",
+                         shown: Plasmoid.configuration.showPlaylists },
+        };
+
+        const kept = [];
+        const seen = {};
+        for (const key of Plasmoid.configuration.sectionOrder || []) {
+            if (known[key] && !seen[key]) {
+                seen[key] = true;
+                if (known[key].shown) {
+                    kept.push(known[key]);
+                }
+            }
+        }
+        // Anything the stored order does not mention -- a section added by a
+        // later version, say -- still has to appear somewhere.
+        for (const key in known) {
+            if (!seen[key] && known[key].shown) {
+                kept.push(known[key]);
+            }
+        }
         // Never leave the browser with nothing to show.
-        return kept.length > 0 ? kept : [all[0]];
+        return kept.length > 0 ? kept : [known.albums];
     }
 
     property var entries: []
@@ -155,11 +172,12 @@ Item {
             break;
         case "artistAlbums":
             client.call("library.artistAlbums",
-                        { id: at.id, source: at.source },
+                        { id: at.id, source: at.source, sort: albumSort },
                         _receive("album", "albums"));
             break;
         case "genreAlbums":
-            client.call("library.genreAlbums", _params({ genre: at.genre }),
+            client.call("library.genreAlbums",
+                        _params({ genre: at.genre, sort: albumSort }),
                         _receive("album", "albums"));
             break;
         case "albumTracks":

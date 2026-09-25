@@ -65,7 +65,14 @@ verifies clean. Two separate things to check by hand after touching them:
    with `test -f contents/ui/$source` for each entry.
 2. The page's own QML. Run `qml6` against the installed copy and read the
    journal the same way; `i18n is not defined` is expected standalone and can be
-   ignored, anything about a type cannot.
+   ignored, anything about a type cannot. Beware that a failed `i18n` call also
+   produces *downstream* errors that look real: a property built from `i18n()`
+   ends up undefined, so every reader of it reports `TypeError: Cannot read
+   property 'x' of undefined`. To tell a genuine fault from this noise, copy the
+   page to a scratch directory, give the copy `i18n`/`i18nc`/`i18np` stubs that
+   return their text, and run that instead — it also lets a probe call the
+   page's own functions and print results with `console.warn`, which reaches
+   the journal.
 
 Plasmashell caches an applet's package per instance, so after changing anything
 under `config/` the settings dialog has to be closed and reopened, and

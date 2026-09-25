@@ -30,6 +30,9 @@
     <entry name="albumSort" type="String">
       <default>alphabetical</default>
     </entry>
+    <entry name="sectionOrder" type="StringList">
+      <default>albums,artists,genres,playlists</default>
+    </entry>
     <entry name="showAlbums" type="Bool">
       <default>true</default>
     </entry>

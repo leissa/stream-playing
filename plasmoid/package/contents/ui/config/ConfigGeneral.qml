@@ -15,10 +15,69 @@ KCM.SimpleKCM {
     property alias cfg_useAlbumArtIcon: albumArtIcon.checked
     property alias cfg_wheelChangesVolume: wheelVolume.checked
     property string cfg_albumSort: "alphabetical"
-    property alias cfg_showAlbums: showAlbums.checked
-    property alias cfg_showArtists: showArtists.checked
-    property alias cfg_showGenres: showGenres.checked
-    property alias cfg_showPlaylists: showPlaylists.checked
+    property bool cfg_showAlbums: true
+    property bool cfg_showArtists: true
+    property bool cfg_showGenres: true
+    property bool cfg_showPlaylists: true
+    property var cfg_sectionOrder: ["albums", "artists", "genres", "playlists"]
+
+    readonly property var sectionLabels: ({
+        albums: i18n("Albums"),
+        artists: i18n("Artists"),
+        genres: i18n("Genres"),
+        playlists: i18n("Playlists"),
+    })
+
+    /* The stored order, repaired: duplicates and unknown names dropped, and
+       anything missing appended so every section stays reachable. */
+    readonly property var orderedKeys: {
+        const all = ["albums", "artists", "genres", "playlists"];
+        const out = [];
+        for (const key of cfg_sectionOrder || []) {
+            if (all.indexOf(key) >= 0 && out.indexOf(key) < 0) {
+                out.push(key);
+            }
+        }
+        for (const key of all) {
+            if (out.indexOf(key) < 0) {
+                out.push(key);
+            }
+        }
+        return out;
+    }
+
+    readonly property bool nothingShown:
+        !cfg_showAlbums && !cfg_showArtists && !cfg_showGenres
+        && !cfg_showPlaylists
+
+    function isShown(key) {
+        switch (key) {
+        case "albums":    return cfg_showAlbums;
+        case "artists":   return cfg_showArtists;
+        case "genres":    return cfg_showGenres;
+        default:          return cfg_showPlaylists;
+        }
+    }
+
+    function setShown(key, value) {
+        switch (key) {
+        case "albums":    cfg_showAlbums = value; break;
+        case "artists":   cfg_showArtists = value; break;
+        case "genres":    cfg_showGenres = value; break;
+        default:          cfg_showPlaylists = value; break;
+        }
+    }
+
+    function moveSection(from, to) {
+        if (to < 0 || to >= orderedKeys.length) {
+            return;
+        }
+        const list = orderedKeys.slice();
+        const moved = list.splice(from, 1)[0];
+        list.splice(to, 0, moved);
+        // A fresh array, so the change is actually noticed.
+        cfg_sectionOrder = list;
+    }
 
     Kirigami.FormLayout {
         anchors.left: parent.left
@@ -104,36 +163,57 @@ KCM.SimpleKCM {
             Component.onCompleted: currentIndex = indexOfValue(page.cfg_albumSort)
         }
 
-        QQC2.CheckBox {
-            id: showAlbums
-            Kirigami.FormData.label: i18n("Show sections:")
-            text: i18n("Albums")
-        }
+        ColumnLayout {
+            Kirigami.FormData.label: i18n("Sections shown:")
+            Kirigami.FormData.labelAlignment: Qt.AlignTop
+            spacing: 0
 
-        QQC2.CheckBox {
-            id: showArtists
-            text: i18n("Artists")
-        }
+            Repeater {
+                model: page.orderedKeys
 
-        QQC2.CheckBox {
-            id: showGenres
-            text: i18n("Genres")
-        }
+                RowLayout {
+                    required property string modelData
+                    required property int index
 
-        QQC2.CheckBox {
-            id: showPlaylists
-            text: i18n("Playlists")
-        }
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
 
-        QQC2.Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            font: Kirigami.Theme.smallFont
-            visible: !showAlbums.checked && !showArtists.checked
-                     && !showGenres.checked && !showPlaylists.checked
-            color: Kirigami.Theme.negativeTextColor
-            text: i18n("At least one section has to stay switched on; "
-                     + "Albums will be used otherwise.")
+                    QQC2.CheckBox {
+                        text: page.sectionLabels[modelData]
+                        checked: page.isShown(modelData)
+                        onToggled: page.setShown(modelData, checked)
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    QQC2.ToolButton {
+                        icon.name: "arrow-up"
+                        enabled: index > 0
+                        QQC2.ToolTip.text: i18n("Move up")
+                        QQC2.ToolTip.visible: hovered
+                        onClicked: page.moveSection(index, index - 1)
+                    }
+
+                    QQC2.ToolButton {
+                        icon.name: "arrow-down"
+                        enabled: index < page.orderedKeys.length - 1
+                        QQC2.ToolTip.text: i18n("Move down")
+                        QQC2.ToolTip.visible: hovered
+                        onClicked: page.moveSection(index, index + 1)
+                    }
+                }
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                wrapMode: Text.WordWrap
+                font: Kirigami.Theme.smallFont
+                visible: page.nothingShown
+                color: Kirigami.Theme.negativeTextColor
+                text: i18n("At least one section has to stay switched on; "
+                         + "Albums will be used otherwise.")
+            }
         }
     }
 }

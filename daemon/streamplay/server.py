@@ -44,6 +44,26 @@ def _source(params: dict[str, Any]) -> str | None:
     return str(value) if value else None
 
 
+def _sort_albums(albums: list, sort: str) -> list:
+    """Order an album list the way the user asked.
+
+    Backends return their own order, and a merged list has no order at all, so
+    every album list goes through here. Sorts that need data we do not carry
+    per album -- play counts, date added -- are left to the backend.
+    """
+    if sort == "alphabetical":
+        albums.sort(key=lambda a: a.name.lower())
+    elif sort == "artist":
+        albums.sort(key=lambda a: (a.artist.lower(), a.year or 0))
+    elif sort == "byYear":
+        # Undated albums go last either way, rather than heading the list.
+        albums.sort(key=lambda a: (a.year is None, a.year or 0, a.name.lower()))
+    elif sort == "byYearDesc":
+        albums.sort(key=lambda a: (a.year is None, -(a.year or 0),
+                                   a.name.lower()))
+    return albums
+
+
 # --------------------------------------------------------------- handshake
 
 @method("hello")
@@ -265,7 +285,10 @@ async def _artists(hub: Hub, params: dict) -> Any:
 async def _artist_albums(hub: Hub, params: dict) -> Any:
     backend = hub.backend(_source(params))
     albums = await backend.artist_albums(str(params.get("id") or ""))
-    return {"albums": [a.to_json() for a in albums]}
+    # A discography reads best in year order, so that is the default here even
+    # though the album list as a whole may be sorted some other way.
+    sort = str(params.get("sort") or "byYear")
+    return {"albums": [a.to_json() for a in _sort_albums(albums, sort)]}
 
 
 @method("library.albums")
@@ -275,17 +298,7 @@ async def _albums(hub: Hub, params: dict) -> Any:
     limit = int(params.get("limit") or 100)
     albums = await hub.gather(
         _source(params), lambda b: b.albums(sort, offset, limit))
-    if sort == "alphabetical":
-        albums.sort(key=lambda a: a.name.lower())
-    elif sort == "artist":
-        albums.sort(key=lambda a: (a.artist.lower(), a.year or 0))
-    elif sort == "byYear":
-        # Undated albums go last either way, rather than heading the list.
-        albums.sort(key=lambda a: (a.year is None, a.year or 0, a.name.lower()))
-    elif sort == "byYearDesc":
-        albums.sort(key=lambda a: (a.year is None, -(a.year or 0),
-                                   a.name.lower()))
-    return {"albums": [a.to_json() for a in albums]}
+    return {"albums": [a.to_json() for a in _sort_albums(albums, sort)]}
 
 
 @method("library.albumTracks")
@@ -328,10 +341,10 @@ async def _genre_albums(hub: Hub, params: dict) -> Any:
     genre = str(params.get("genre") or "")
     offset = int(params.get("offset") or 0)
     limit = int(params.get("limit") or 100)
+    sort = str(params.get("sort") or "alphabetical")
     albums = await hub.gather(
         _source(params), lambda b: b.genre_albums(genre, offset, limit))
-    albums.sort(key=lambda a: a.name.lower())
-    return {"albums": [a.to_json() for a in albums]}
+    return {"albums": [a.to_json() for a in _sort_albums(albums, sort)]}
 
 
 @method("library.playlists")
