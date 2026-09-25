@@ -60,7 +60,10 @@ install_service() {
     mkdir -p "$UNIT_DIR"
     cp "$HERE/systemd/streamplay.service" "$UNIT_DIR/streamplay.service"
     systemctl --user daemon-reload
-    systemctl --user enable --now streamplay.service
+    systemctl --user enable streamplay.service
+    # restart, not "enable --now": on a reinstall the service is already
+    # running and would otherwise keep serving the previous code.
+    systemctl --user restart streamplay.service
     sleep 1
     if systemctl --user is-active --quiet streamplay.service; then
         say "The service is running."

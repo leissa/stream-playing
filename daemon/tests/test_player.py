@@ -17,7 +17,8 @@ import wave
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from streamplay.backends.base import BackendError, Sink, StreamTarget
+from streamplay.backends.base import (BackendError, Sink, SourceUnavailable,
+                                      StreamTarget)
 from streamplay.models import Track
 from streamplay.player import UnifiedPlayer
 from streamplay.sinks import MpvSink
@@ -76,7 +77,7 @@ class Router:
     async def stream_target(self, track: Track) -> StreamTarget:
         library = self.libraries.get(track.source)
         if library is None:
-            raise BackendError(f"{track.source} is not connected")
+            raise SourceUnavailable(f"{track.source} is not connected")
         return await library.stream_target(track)
 
     async def scrobble(self, track: Track, submission: bool) -> None:
@@ -280,6 +281,31 @@ async def main() -> None:
         state = player.state()
         check("a track from a disconnected service reports an error",
               bool(state["error"]) and state["status"] == "stopped")
+
+        # ------------------------- a service switched off mid-queue
+        # A handful of tracks from a disconnected service must not stop the
+        # queue: the player should step over them and play the rest.
+        gone = [Track(id="1", title="Gone 1", duration=3.0, backend="fake",
+                      source="switched-off"),
+                Track(id="2", title="Gone 2", duration=3.0, backend="fake",
+                      source="switched-off")]
+        mixed = gone + [navidrome.tracks(4)[2]]
+        await player.enqueue(mixed, mode="replace")
+        await asyncio.sleep(1.5)
+        state = player.state()
+        check("skips tracks whose service is off and plays the next one",
+              state["status"] == "playing"
+              and state["track"]["source"] == "navidrome")
+
+        # With nothing playable it has to give up, but say so rather than
+        # looping through the queue for ever.
+        await player.enqueue(gone, mode="replace")
+        await asyncio.sleep(1.5)
+        state = player.state()
+        check("stops when the whole queue is unplayable",
+              state["status"] == "stopped" and bool(state["error"]))
+        check("and explains why",
+              "queue" in (state["error"] or "").lower())
 
         # ------------------------------------------------------------- misc
         await player.enqueue(navidrome.tracks(2), mode="replace")

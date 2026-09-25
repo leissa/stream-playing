@@ -12,7 +12,7 @@ import "Formatting.js" as Fmt
 Item {
     id: rowItem
 
-    required property var entry
+    property var entry: null
 
     signal activated()
     signal playRequested()

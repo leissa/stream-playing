@@ -12,7 +12,8 @@ import logging
 from typing import Any, Callable
 from urllib.parse import urlencode
 
-from .backends import (Backend, BackendError, Sink, create_backend, create_sink)
+from .backends import (Backend, BackendError, Sink, SourceUnavailable,
+                       create_backend, create_sink)
 from .config import Config
 from .covers import CoverCache
 from .models import Track
@@ -318,8 +319,9 @@ class Hub:
     async def stream_target(self, track: Track):
         backend = self.sources.get(track.source)
         if backend is None:
-            raise BackendError(
-                f"{track.title}: its music server is not connected")
+            name = self.config.profiles.get(track.source)
+            raise SourceUnavailable(
+                f"{name.name if name else track.source} is not connected")
         return await backend.stream_target(track)
 
     async def scrobble(self, track: Track, submission: bool) -> None:

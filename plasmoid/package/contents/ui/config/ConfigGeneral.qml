@@ -15,6 +15,10 @@ KCM.SimpleKCM {
     property alias cfg_useAlbumArtIcon: albumArtIcon.checked
     property alias cfg_wheelChangesVolume: wheelVolume.checked
     property string cfg_albumSort: "alphabetical"
+    property alias cfg_showAlbums: showAlbums.checked
+    property alias cfg_showArtists: showArtists.checked
+    property alias cfg_showGenres: showGenres.checked
+    property alias cfg_showPlaylists: showPlaylists.checked
 
     Kirigami.FormLayout {
         anchors.left: parent.left
@@ -92,11 +96,44 @@ KCM.SimpleKCM {
                 { value: "newest",       label: i18n("Recently added") },
                 { value: "recent",       label: i18n("Recently played") },
                 { value: "frequent",     label: i18n("Most played") },
-                { value: "byYear",       label: i18n("Year") },
+                { value: "byYear",       label: i18n("Year (oldest first)") },
+                { value: "byYearDesc",   label: i18n("Year (newest first)") },
                 { value: "random",       label: i18n("Random") },
             ]
             onActivated: page.cfg_albumSort = currentValue
             Component.onCompleted: currentIndex = indexOfValue(page.cfg_albumSort)
+        }
+
+        QQC2.CheckBox {
+            id: showAlbums
+            Kirigami.FormData.label: i18n("Show sections:")
+            text: i18n("Albums")
+        }
+
+        QQC2.CheckBox {
+            id: showArtists
+            text: i18n("Artists")
+        }
+
+        QQC2.CheckBox {
+            id: showGenres
+            text: i18n("Genres")
+        }
+
+        QQC2.CheckBox {
+            id: showPlaylists
+            text: i18n("Playlists")
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            visible: !showAlbums.checked && !showArtists.checked
+                     && !showGenres.checked && !showPlaylists.checked
+            color: Kirigami.Theme.negativeTextColor
+            text: i18n("At least one section has to stay switched on; "
+                     + "Albums will be used otherwise.")
         }
     }
 }

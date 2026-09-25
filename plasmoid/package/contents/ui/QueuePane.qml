@@ -20,6 +20,22 @@ Item {
 
     readonly property var client: root.client
 
+    /* A queued track is dead weight while the service it came from is off. */
+    function playable(track) {
+        return !track || !track.source
+            || client.connectedSources.some(s => s.id === track.source);
+    }
+
+    function unplayableCount() {
+        let n = 0;
+        for (let i = 0; i < client.queueTracks.length; ++i) {
+            if (!playable(client.queueTracks[i])) {
+                ++n;
+            }
+        }
+        return n;
+    }
+
     function totalDuration() {
         let total = 0;
         for (let i = 0; i < client.queueTracks.length; ++i) {
@@ -40,10 +56,18 @@ Item {
             PlasmaExtras.DescriptiveLabel {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
-                text: client.queueTracks.length === 0 ? ""
-                    : i18np("%1 track, %2", "%1 tracks, %2",
-                            client.queueTracks.length,
-                            Fmt.duration(pane.totalDuration()))
+                text: {
+                    if (client.queueTracks.length === 0) {
+                        return "";
+                    }
+                    const summary = i18np("%1 track, %2", "%1 tracks, %2",
+                                          client.queueTracks.length,
+                                          Fmt.duration(pane.totalDuration()));
+                    const stranded = pane.unplayableCount();
+                    return stranded === 0 ? summary
+                        : i18nc("@info:status queue summary",
+                                "%1 · %2 unavailable", summary, stranded);
+                }
             }
 
             PlasmaComponents.ToolButton {
@@ -104,19 +128,22 @@ Item {
                     PlasmaComponents.ItemDelegate {
                         id: row
 
+                        readonly property bool unavailable:
+                            !pane.playable(slot.modelData)
+
                         width: parent.width
                         highlighted: slot.index === client.queueIndex
                         opacity: Drag.active ? 0.6 : 1
                         onDoubleClicked: client.playAt(slot.index)
 
-                        Drag.active: dragHandler.drag.active
+                        Drag.active: dragHandler.active
                         Drag.source: row
                         Drag.keys: ["streamplay/queue-item"]
                         Drag.hotSpot.x: width / 2
                         Drag.hotSpot.y: height / 2
 
                         states: State {
-                            when: dragHandler.drag.active
+                            when: dragHandler.active
                             ParentChange { target: row; parent: view }
                             AnchorChanges {
                                 target: row
@@ -127,6 +154,7 @@ Item {
 
                         contentItem: RowLayout {
                             spacing: Kirigami.Units.smallSpacing
+                            opacity: row.unavailable ? 0.45 : 1
 
                             Item {
                                 Layout.preferredWidth: Kirigami.Units.gridUnit * 1.5
@@ -135,6 +163,7 @@ Item {
                                 PlasmaComponents.Label {
                                     anchors.centerIn: parent
                                     visible: slot.index !== client.queueIndex
+                                             && !row.unavailable
                                     opacity: 0.6
                                     font: Kirigami.Theme.smallFont
                                     text: slot.index + 1
@@ -145,9 +174,22 @@ Item {
                                     width: Kirigami.Units.iconSizes.small
                                     height: width
                                     visible: slot.index === client.queueIndex
-                                    source: client.playback.status === "playing"
-                                            ? "media-playback-start"
-                                            : "media-playback-pause"
+                                             || row.unavailable
+                                    source: row.unavailable
+                                            ? "dialog-warning"
+                                            : (client.playback.status === "playing"
+                                               ? "media-playback-start"
+                                               : "media-playback-pause")
+
+                                    HoverHandler { id: markHover }
+                                    PlasmaComponents.ToolTip.text: i18n(
+                                        "%1 is not connected, so this track "
+                                        + "cannot be played",
+                                        client.sourceName(slot.modelData.source))
+                                    PlasmaComponents.ToolTip.visible:
+                                        row.unavailable && markHover.hovered
+                                    PlasmaComponents.ToolTip.delay:
+                                        Kirigami.Units.toolTipDelay
                                 }
                             }
 

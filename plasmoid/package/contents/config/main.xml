@@ -30,5 +30,17 @@
     <entry name="albumSort" type="String">
       <default>alphabetical</default>
     </entry>
+    <entry name="showAlbums" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showArtists" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showGenres" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showPlaylists" type="Bool">
+      <default>true</default>
+    </entry>
   </group>
 </kcfg>

@@ -24,6 +24,14 @@ class BackendError(RuntimeError):
     """Raised for anything the user should see as a connection/API failure."""
 
 
+class SourceUnavailable(BackendError):
+    """The service a track came from is not connected at the moment.
+
+    Distinct from a playback failure: the track may be perfectly fine, so the
+    player skips it instead of treating it as a broken file.
+    """
+
+
 @dataclass
 class StreamTarget:
     """How to play one track.

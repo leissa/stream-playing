@@ -42,6 +42,7 @@ ALBUM_SORTS = {
     "frequent": ("playcount", "descending"),
     "random": ("random", "ascending"),
     "byYear": ("year", "ascending"),
+    "byYearDesc": ("year", "descending"),
 }
 
 

@@ -15,7 +15,8 @@ import random
 import time
 from typing import Any, Callable, Iterable, Sequence
 
-from .backends.base import REPEAT_MODES, BackendError, Sink
+from .backends.base import (REPEAT_MODES, BackendError, Sink,
+                            SourceUnavailable)
 from .models import Track
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,8 @@ class UnifiedPlayer:
         self._repeat: str = str(settings.get("repeat", "none"))
         self._order: list[int] = []
         self._error_streak = 0
+        #: Consecutive tracks skipped because their service is switched off.
+        self._skipped = 0
         self._last_error: str | None = None
         self._scrobbled = False
         self._started_at = 0.0
@@ -135,6 +138,9 @@ class UnifiedPlayer:
 
     def queue(self) -> dict[str, Any]:
         return {"tracks": [t.to_json() for t in self._tracks], "index": self._index}
+
+    def sources_in_queue(self) -> set[str]:
+        return {t.source for t in self._tracks if t.source}
 
     def _changed(self) -> None:
         state = self.state()
@@ -228,6 +234,22 @@ class UnifiedPlayer:
         try:
             target = await self._resolver.stream_target(track)
             await sink.play(target, track)
+        except SourceUnavailable as exc:
+            # Step over it. Only give up once the whole queue has been tried,
+            # otherwise a handful of tracks from a disconnected service would
+            # stop playback even though the rest of the queue is fine.
+            self._skipped += 1
+            if self._skipped >= max(1, len(self._tracks)):
+                self._skipped = 0
+                self._last_error = (
+                    "Nothing in the queue can be played: "
+                    f"{exc}"
+                )
+                await self.stop()
+            else:
+                self._last_error = str(exc)
+                await self._advance(+1)
+            return
         except BackendError as exc:
             log.warning("cannot play %s: %s", track.title, exc)
             self._last_error = str(exc)
@@ -245,6 +267,7 @@ class UnifiedPlayer:
             return
 
         self._error_streak = 0
+        self._skipped = 0
         if seek_to > 1.0:
             await sink.seek(seek_to)
         self._changed()
@@ -329,6 +352,7 @@ class UnifiedPlayer:
         self._changed()
 
     async def next(self) -> None:
+        self._skipped = 0
         await self._advance(+1, user=True)
 
     async def previous(self) -> None:
@@ -465,6 +489,7 @@ class UnifiedPlayer:
 
     async def play_index(self, index: int) -> None:
         if 0 <= index < len(self._tracks):
+            self._skipped = 0
             await self._load(index)
 
     def drop_source(self, source: str) -> list[int]:

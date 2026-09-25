@@ -53,10 +53,23 @@ Empty output means it loaded cleanly. One bad type name kills the whole applet
 via a cascade of "Type X unavailable", so always check this after touching QML.
 `QT_QPA_PLATFORM=offscreen` keeps a window from appearing.
 
-Config pages are loaded separately and can fail on their own. Check them with
-`qml6` on the installed copy and read the journal the same way; `i18n is not
-defined` is expected standalone and can be ignored, anything about a type
-cannot.
+**The loop above does not exercise the config pages** — they are only loaded
+when the settings dialog is opened, so they can be broken while the applet
+verifies clean. Two separate things to check by hand after touching them:
+
+1. `ConfigCategory.source` in `contents/config/config.qml` is resolved relative
+   to **`contents/ui/`**, not to `contents/`. Our pages live in
+   `contents/ui/config/`, so the correct value is `config/ConfigGeneral.qml`.
+   Getting this wrong gives categories that appear in the dialog with empty
+   content and no error anywhere, because Plasma does not log the miss. Verify
+   with `test -f contents/ui/$source` for each entry.
+2. The page's own QML. Run `qml6` against the installed copy and read the
+   journal the same way; `i18n is not defined` is expected standalone and can be
+   ignored, anything about a type cannot.
+
+Plasmashell caches an applet's package per instance, so after changing anything
+under `config/` the settings dialog has to be closed and reopened, and
+sometimes plasmashell restarted, before the change shows up.
 
 Plasma type locations are easy to get wrong. `SearchField`, `Heading`,
 `DescriptiveLabel`, `PlaceholderMessage` and `ListSectionHeader` live in

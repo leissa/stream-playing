@@ -1,5 +1,6 @@
 /* Where the queue is playing, and how the connected services are doing. */
 
+import QtQml
 import QtQuick
 import QtQuick.Layouts
 
@@ -101,6 +102,76 @@ RowLayout {
         opacity: 0.8
         text: client.online ? header.summary.split("\n")[0]
                             : i18n("Service not running")
+    }
+
+    // Switch individual services on and off without opening the settings.
+    PlasmaComponents.ToolButton {
+        id: serversButton
+
+        icon.name: "server-database"
+        display: PlasmaComponents.AbstractButton.IconOnly
+        enabled: client.online && client.sources.length > 0
+        checkable: true
+        checked: serversMenu.opened
+        text: i18n("Music Servers")
+
+        onToggled: {
+            if (checked) {
+                serversMenu.open();
+            } else {
+                serversMenu.close();
+            }
+        }
+
+        PlasmaComponents.ToolTip.text: header.summary
+        PlasmaComponents.ToolTip.visible: hovered && !serversMenu.opened
+        PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+
+        PlasmaComponents.Menu {
+            id: serversMenu
+            y: serversButton.height
+
+            Instantiator {
+                model: client.sources
+
+                onObjectAdded: (index, object) => serversMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => serversMenu.removeItem(object)
+
+                delegate: PlasmaComponents.MenuItem {
+                    required property var modelData
+
+                    checkable: true
+                    checked: modelData.state === "connected"
+                    enabled: client.online
+                    icon.name: modelData.state === "error"
+                               ? "dialog-error"
+                               : modelData.type === "kodi" ? "kodi"
+                                                           : "server-database"
+                    text: {
+                        switch (modelData.state) {
+                        case "connecting":
+                            return i18nc("@item:inmenu music server",
+                                         "%1 (connecting…)", modelData.name);
+                        case "error":
+                            return i18nc("@item:inmenu music server",
+                                         "%1 (failed)", modelData.name);
+                        default:
+                            return modelData.name;
+                        }
+                    }
+
+                    onTriggered: {
+                        client.send(checked ? "sources.connect"
+                                            : "sources.disconnect",
+                                    { id: modelData.id });
+                        // Ticking breaks the binding; restore it so the daemon,
+                        // which may fail to connect, has the last word.
+                        checked = Qt.binding(
+                            () => modelData.state === "connected");
+                    }
+                }
+            }
+        }
     }
 
     PlasmaComponents.ToolButton {

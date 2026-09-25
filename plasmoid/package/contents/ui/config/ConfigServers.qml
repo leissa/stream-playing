@@ -147,6 +147,10 @@ KCM.SimpleKCM {
                                 client.send(checked ? "sources.connect"
                                                     : "sources.disconnect",
                                             { id: modelData.id });
+                                // Clicking breaks the binding above. Restore it
+                                // so the daemon has the last word -- it may well
+                                // fail to connect.
+                                checked = Qt.binding(() => modelData.enabled);
                             }
                         }
 

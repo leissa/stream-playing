@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import Backend, BackendError, Sink, SinkState, StreamTarget
+from .base import (Backend, BackendError, Sink, SinkState, SourceUnavailable,
+                   StreamTarget)
 from .kodi import KodiBackend, KodiSink
 from .subsonic import SubsonicBackend
 
 __all__ = [
-    "Backend", "BackendError", "Sink", "SinkState", "StreamTarget",
+    "Backend", "BackendError", "Sink", "SinkState", "SourceUnavailable",
+    "StreamTarget",
     "KodiBackend", "KodiSink", "SubsonicBackend",
     "BACKEND_TYPES", "create_backend", "create_sink",
 ]

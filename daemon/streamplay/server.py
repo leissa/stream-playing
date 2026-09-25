@@ -280,7 +280,11 @@ async def _albums(hub: Hub, params: dict) -> Any:
     elif sort == "artist":
         albums.sort(key=lambda a: (a.artist.lower(), a.year or 0))
     elif sort == "byYear":
-        albums.sort(key=lambda a: a.year or 0)
+        # Undated albums go last either way, rather than heading the list.
+        albums.sort(key=lambda a: (a.year is None, a.year or 0, a.name.lower()))
+    elif sort == "byYearDesc":
+        albums.sort(key=lambda a: (a.year is None, -(a.year or 0),
+                                   a.name.lower()))
     return {"albums": [a.to_json() for a in albums]}
 
 

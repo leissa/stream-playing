@@ -75,10 +75,17 @@ class FakeBackend(Backend):
     async def artist_albums(self, artist_id: str) -> list[Album]:
         return await self.albums()
 
+    #: Deliberately out of order, and one without a year, so the daemon's own
+    #: merge sort is what gets tested rather than the backend's.
+    ALBUMS = (("al1", 2005), ("al2", 1990), ("al3", None))
+
     async def albums(self, sort: str = "alphabetical", offset: int = 0,
                      limit: int = 100) -> list[Album]:
-        return [self.tag(Album(id="al1", name=f"{self._prefix()} Album",
-                               artist=f"{self._prefix()} Artist"))]
+        return [
+            self.tag(Album(id=album_id, name=f"{self._prefix()} {album_id}",
+                           artist=f"{self._prefix()} Artist", year=year))
+            for album_id, year in self.ALBUMS
+        ]
 
     async def album_tracks(self, album_id: str) -> list[Track]:
         return [
@@ -191,9 +198,20 @@ async def main() -> None:
                   == ["alpha", "beta"])
 
             reply = await applet.call("library.albums", source="beta")
+            albums = reply["result"]["albums"]
             check("a source filter narrows the results",
-                  len(reply["result"]["albums"]) == 1
-                  and reply["result"]["albums"][0]["source"] == "beta")
+                  len(albums) == 3
+                  and all(a["source"] == "beta" for a in albums))
+
+            reply = await applet.call("library.albums", sort="byYear")
+            years = [a.get("year") for a in reply["result"]["albums"]]
+            check("byYear sorts oldest first, undated last",
+                  years == [1990, 1990, 2005, 2005, None, None])
+
+            reply = await applet.call("library.albums", sort="byYearDesc")
+            years = [a.get("year") for a in reply["result"]["albums"]]
+            check("byYearDesc sorts newest first, undated last",
+                  years == [2005, 2005, 1990, 1990, None, None])
 
             reply = await applet.call("library.genres")
             check("genres are merged and de-duplicated",

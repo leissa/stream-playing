@@ -81,6 +81,32 @@ async def run(args: argparse.Namespace) -> int:
     return exit_code
 
 
+class _AbortedRequestFilter(logging.Filter):
+    """Drop the tracebacks produced by half-finished HTTP requests.
+
+    Cover art is served over the same port as the WebSocket, and QML cancels an
+    image load whenever a list delegate is recycled. websockets then trips an
+    assertion trying to finish a response nobody is reading any more, and logs
+    a full traceback at ERROR. It is noise -- the request was simply abandoned
+    -- so it is reduced to a debug line rather than filling the journal.
+    """
+
+    MESSAGES = ("opening handshake failed", "unexpected internal error")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.getMessage() not in self.MESSAGES:
+            return True
+        exc = record.exc_info[1] if record.exc_info else None
+        while exc is not None:
+            if isinstance(exc, (AssertionError, ConnectionError)) or type(
+                exc
+            ).__name__ in ("ConnectionClosedError", "ConnectionClosedOK"):
+                log.debug("client went away mid-request")
+                return False
+            exc = exc.__cause__ or exc.__context__
+        return True
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     level = (logging.WARNING, logging.INFO, logging.DEBUG)[min(args.verbose, 2)]
@@ -90,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
     logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("websockets.server").addFilter(_AbortedRequestFilter())
 
     try:
         return asyncio.run(run(args))

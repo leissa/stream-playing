@@ -33,6 +33,16 @@ ALBUM_SORTS = {
     "random": "random",
     "starred": "starred",
     "byYear": "byYear",
+    "byYearDesc": "byYear",
+}
+
+#: getAlbumList2's byYear needs a year range. Giving it backwards is the
+#: documented way to ask for the newest first.
+#: Start at 1 rather than 0: albums with no year would otherwise fill the
+#: whole first page and the real oldest releases would never be reached.
+YEAR_RANGE = {
+    "byYear": {"fromYear": 1, "toYear": 3000},
+    "byYearDesc": {"fromYear": 3000, "toYear": 1},
 }
 
 
@@ -179,6 +189,7 @@ class SubsonicBackend(Backend):
             "getAlbumList2",
             type=ALBUM_SORTS.get(sort, "alphabeticalByName"),
             size=min(limit, 500), offset=offset,
+            **YEAR_RANGE.get(sort, {}),
         )
         albums = (body.get("albumList2") or {}).get("album") or []
         return [self._album(a) for a in albums]

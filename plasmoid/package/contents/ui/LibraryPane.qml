@@ -7,6 +7,7 @@
  */
 
 import QtQuick
+import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 
 import org.kde.plasma.components as PlasmaComponents
@@ -29,6 +30,32 @@ Item {
     /* Which service to browse; empty means all of them at once. */
     property string sourceFilter: ""
 
+    /* Bound rather than read inline, so changing it in the settings can
+       trigger a reload -- an already-loaded list would otherwise keep the
+       order it was fetched with. */
+    readonly property string albumSort: Plasmoid.configuration.albumSort
+
+    /* The top-level sections the user has chosen to keep. */
+    readonly property var sections: {
+        const all = [
+            { mode: "albums", label: i18n("Albums"),
+              icon: "view-media-album-cover",
+              shown: Plasmoid.configuration.showAlbums },
+            { mode: "artists", label: i18n("Artists"),
+              icon: "view-media-artist",
+              shown: Plasmoid.configuration.showArtists },
+            { mode: "genres", label: i18n("Genres"),
+              icon: "view-media-genre",
+              shown: Plasmoid.configuration.showGenres },
+            { mode: "playlists", label: i18n("Playlists"),
+              icon: "view-media-playlist",
+              shown: Plasmoid.configuration.showPlaylists },
+        ];
+        const kept = all.filter(section => section.shown);
+        // Never leave the browser with nothing to show.
+        return kept.length > 0 ? kept : [all[0]];
+    }
+
     property var entries: []
     property bool loading: false
     property string loadError: ""
@@ -36,6 +63,24 @@ Item {
     /* True when the current list is made of tracks we can enqueue wholesale. */
     readonly property bool listIsTracks:
         here.mode === "albumTracks" || here.mode === "playlistTracks"
+
+    /* Move off a section that has just been switched off. */
+    function ensureSection() {
+        if (atRoot && !sections.some(section => section.mode === here.mode)) {
+            stack = [{ mode: sections[0].mode, title: "" }];
+            return true;
+        }
+        return false;
+    }
+
+    function refresh() {
+        if (sourceFilter
+            && !client.connectedSources.some(s => s.id === sourceFilter)) {
+            sourceFilter = "";
+            stack = [{ mode: here.mode, title: "" }];
+        }
+        load();
+    }
 
     function push(entry) {
         stack = stack.concat([entry]);
@@ -92,8 +137,7 @@ Item {
             break;
         case "albums":
             client.call("library.albums",
-                        _params({ sort: Plasmoid.configuration.albumSort,
-                                  limit: 300 }),
+                        _params({ sort: albumSort, limit: 300 }),
                         _receive("album", "albums"));
             break;
         case "genres":
@@ -194,13 +238,38 @@ Item {
         }
     }
 
-    Component.onCompleted: load()
+    Component.onCompleted: {
+        ensureSection();
+        load();
+    }
+
+    onSectionsChanged: {
+        if (ensureSection()) {
+            load();
+        }
+    }
+
+    onAlbumSortChanged: {
+        // Any album list on screen was fetched in the old order.
+        if (here.mode === "albums" || here.mode === "artistAlbums"
+            || here.mode === "genreAlbums") {
+            load();
+        }
+    }
 
     Connections {
         target: client
         // Reload once a service connects, disconnects, or the daemon restarts.
-        function onSourcesChanged() { pane.load(); }
-        function onReloaded() { pane.load(); }
+        function onSourcesChanged() { pane.refresh(); }
+        function onReloaded() { pane.refresh(); }
+    }
+
+    // Retry on the way back in, so a failure while a server was down does not
+    // leave the tab stuck on an error until something else happens to change.
+    onVisibleChanged: {
+        if (visible && (loadError || entries.length === 0)) {
+            refresh();
+        }
     }
 
     ColumnLayout {
@@ -264,6 +333,21 @@ Item {
                     pane.replaceRoot({ mode: pane.atRoot ? pane.here.mode : "albums",
                                        title: "" });
                 }
+
+                // Follow the filter rather than our own index: the entries
+                // shift whenever a service connects or disconnects.
+                function syncToFilter() {
+                    for (let i = 0; i < model.length; ++i) {
+                        if ((model[i].id || "") === pane.sourceFilter) {
+                            currentIndex = i;
+                            return;
+                        }
+                    }
+                    currentIndex = 0;
+                }
+
+                onModelChanged: syncToFilter()
+                Component.onCompleted: syncToFilter()
             }
         }
 
@@ -274,12 +358,7 @@ Item {
             spacing: 0
 
             Repeater {
-                model: [
-                    { mode: "albums",    label: i18n("Albums"),    icon: "view-media-album-cover" },
-                    { mode: "artists",   label: i18n("Artists"),   icon: "view-media-artist" },
-                    { mode: "genres",    label: i18n("Genres"),    icon: "view-media-genre" },
-                    { mode: "playlists", label: i18n("Playlists"), icon: "view-media-playlist" },
-                ]
+                model: pane.sections
 
                 PlasmaComponents.TabButton {
                     required property var modelData
@@ -344,17 +423,23 @@ Item {
                 reuseItems: true
 
                 delegate: LibraryRow {
+                    // Qt 6 only injects modelData into a delegate that asks for
+                    // it explicitly; without this the binding below throws for
+                    // every row and the list comes up empty.
+                    required property var modelData
+
                     width: list.width
                     entry: modelData
-                    onActivated: pane.activate(modelData)
+
+                    onActivated: pane.activate(entry)
                     onPlayRequested: {
-                        const spec = pane.specFor(modelData);
+                        const spec = pane.specFor(entry);
                         if (spec) {
                             client.enqueue(spec, "replace", true);
                         }
                     }
                     onQueueRequested: {
-                        const spec = pane.specFor(modelData);
+                        const spec = pane.specFor(entry);
                         if (spec) {
                             client.enqueue(spec, "append", false);
                         }
@@ -380,5 +465,12 @@ Item {
             : pane.here.mode === "search" ? i18n("Nothing matched")
                                           : i18n("Nothing here")
         explanation: pane.loadError ? pane.loadError : ""
+
+        helpfulAction: QQC2.Action {
+            enabled: !!pane.loadError
+            icon.name: "view-refresh"
+            text: i18n("Try Again")
+            onTriggered: pane.refresh()
+        }
     }
 }
