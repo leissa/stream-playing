@@ -8,6 +8,7 @@ import logging
 from typing import Any, Callable
 from urllib.parse import urlencode
 
+from . import secretstore
 from .backends import (PLAYBACK_TYPES, Backend, BackendError, Sink,
                        SourceUnavailable, create_backend, create_sink)
 from .config import Config
@@ -21,6 +22,9 @@ log = logging.getLogger(__name__)
 
 #: How long to sit on playback-setting changes before writing config.json.
 SETTINGS_FLUSH_DELAY = 3.0
+
+#: Seconds between attempts to reach a Secret Service that is not running yet.
+SECRETS_RETRY = 5.0
 
 #: Size (px) of the cover handed to MPRIS / Now Playing.
 ART_SIZE = 512
@@ -44,6 +48,7 @@ class Hub:
         self._art_by_key: dict[str, str] = {}
         self._art_pending: set[str] = set()
         self._settings_task: asyncio.Task | None = None
+        self._secrets_task: asyncio.Task | None = None
 
 
     async def start(self) -> None:
@@ -56,17 +61,37 @@ class Hub:
 
         await self._ensure_local_sink()
 
-        for profile_id, profile in list(self.config.profiles.items()):
-            if profile.get("enabled", True):
-                try:
-                    await self.connect_source(profile_id)
-                except BackendError as exc:
-                    log.warning("could not connect %s: %s", profile_id, exc)
+        if self.config.profiles and not await self._load_secrets(warn=True):
+            self._secrets_task = asyncio.create_task(self._retry_secrets())
+        await self._connect_enabled()
 
         await self.set_output(self.config.settings.get("output") or LOCAL_OUTPUT,
                               persist=False)
         self.emit("sources", self.sources_json())
         self.broadcast_state()
+
+    async def _load_secrets(self, warn: bool = False) -> bool:
+        try:
+            secrets = await asyncio.to_thread(secretstore.load_all)
+        except secretstore.SecretStoreError as exc:
+            (log.warning if warn else log.debug)("cannot read passwords: %s", exc)
+            return False
+        self.config.merge_secrets(secrets)
+        return True
+
+    async def _retry_secrets(self) -> None:
+        while not await self._load_secrets():
+            await asyncio.sleep(SECRETS_RETRY)
+        log.info("passwords read from the Secret Service")
+        await self._connect_enabled()
+
+    async def _connect_enabled(self) -> None:
+        for profile_id, profile in list(self.config.profiles.items()):
+            if profile.get("enabled", True) and profile_id not in self.sources:
+                try:
+                    await self.connect_source(profile_id)
+                except BackendError as exc:
+                    log.warning("could not connect %s: %s", profile_id, exc)
 
     async def _ensure_local_sink(self) -> None:
         if LOCAL_OUTPUT in self.sinks:
@@ -80,6 +105,9 @@ class Hub:
         self.sinks[LOCAL_OUTPUT] = sink
 
     async def close(self) -> None:
+        if self._secrets_task:
+            self._secrets_task.cancel()
+            self._secrets_task = None
         if self._settings_task:
             self._settings_task.cancel()
             self._settings_task = None

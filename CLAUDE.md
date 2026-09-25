@@ -173,8 +173,11 @@ passwords, which `secretstore.py` keeps in the freedesktop Secret Service
 (`org.freedesktop.secrets`, not the KWallet API) under the attributes
 `application=streamplay`, `profile`, `field`.
 
-- `Config.load()` merges them into the in-memory profiles, so backends still
+- `Hub.start()` merges them into the in-memory profiles, so backends still
   read `profile["password"]`; `Config.save()` never writes a secret field.
+- A provider like KeePassXC is not D-Bus activatable and often starts after the
+  daemon, so `Hub._retry_secrets` polls until it appears, then connects.
+- Reading runs in a thread because an unlock prompt blocks until answered.
 - `Config.upsert()` treats a missing or empty `password` as "keep the stored
   one", so the applet can save an edited profile without ever holding the
   secret.

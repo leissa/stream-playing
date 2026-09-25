@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 import websockets
 
-from streamplay import backends
+from streamplay import backends, hub as hub_module, secretstore
 from streamplay.backends.base import Backend, StreamTarget
 from streamplay.config import Config
 from streamplay.hub import Hub
@@ -151,6 +151,14 @@ class Applet:
 
 async def main() -> None:
     backends.BACKEND_TYPES["fake"] = FakeBackend
+    hub_module.SECRETS_RETRY = 0.05
+    keyring_up = asyncio.Event()
+
+    def load_all() -> dict:
+        if not keyring_up.is_set():
+            raise secretstore.SecretStoreError("not running yet")
+        return {("alpha", "password"): "hunter2"}
+    secretstore.load_all = load_all
 
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
@@ -171,6 +179,12 @@ async def main() -> None:
         serving = asyncio.create_task(server.serve_forever())
         await asyncio.sleep(0.3)
         await hub.start()
+        check("a missing keyring does not stop the services connecting",
+              set(hub.sources) == {"alpha", "beta"})
+        keyring_up.set()
+        await asyncio.sleep(0.3)
+        check("passwords arrive once the keyring appears",
+              config.profiles["alpha"].get("password") == "hunter2")
 
         async with Applet(f"ws://127.0.0.1:{config.settings['port']}/") as applet:
             reply = await applet.call("hello")

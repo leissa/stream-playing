@@ -1,6 +1,6 @@
 """Connection profiles and daemon settings, in one hand-editable JSON file.
 
-Passwords live in the Secret Service instead and are merged in on load.
+Passwords live in the Secret Service instead; the hub merges them in.
 """
 
 from __future__ import annotations
@@ -97,18 +97,13 @@ class Config:
                 prof.pop(field, None)
             self.profiles[pid] = prof
 
-        if self.profiles:
-            try:
-                secrets = secretstore.load_all()
-            except secretstore.SecretStoreError as exc:
-                log.error("cannot read passwords: %s", exc)
-                secrets = {}
-            for (pid, field), value in secrets.items():
-                if pid in self.profiles and field in SECRET_FIELDS:
-                    self.profiles[pid][field] = value
-
         self.settings = self._default_settings()
         self.settings.update(raw.get("settings") or {})
+
+    def merge_secrets(self, secrets: dict[tuple[str, str], str]) -> None:
+        for (pid, field), value in secrets.items():
+            if pid in self.profiles and field in SECRET_FIELDS:
+                self.profiles[pid][field] = value
 
     @staticmethod
     def _default_settings() -> dict[str, Any]:
