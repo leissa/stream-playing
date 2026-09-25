@@ -1,6 +1,6 @@
 """Connection profiles and daemon settings, in one hand-editable JSON file.
 
-It holds backend passwords, so it is re-chmod'ed to 0600 on every save.
+Passwords live in the Secret Service instead and are merged in on load.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any
+
+from . import secretstore
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +93,19 @@ class Config:
         for pid, data in (raw.get("profiles") or {}).items():
             prof = Profile(data)
             prof["id"] = pid
+            for field in SECRET_FIELDS:
+                prof.pop(field, None)
             self.profiles[pid] = prof
+
+        if self.profiles:
+            try:
+                secrets = secretstore.load_all()
+            except secretstore.SecretStoreError as exc:
+                log.error("cannot read passwords: %s", exc)
+                secrets = {}
+            for (pid, field), value in secrets.items():
+                if pid in self.profiles and field in SECRET_FIELDS:
+                    self.profiles[pid][field] = value
 
         self.settings = self._default_settings()
         self.settings.update(raw.get("settings") or {})
@@ -112,7 +126,8 @@ class Config:
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "profiles": {pid: dict(p) for pid, p in self.profiles.items()},
+            "profiles": {pid: {k: v for k, v in p.items() if k not in SECRET_FIELDS}
+                         for pid, p in self.profiles.items()},
             "settings": self.settings,
         }
         tmp = self.path.with_suffix(".json.tmp")
@@ -142,6 +157,11 @@ class Config:
             merged[key] = value
         merged["id"] = pid
 
+        for field in SECRET_FIELDS:
+            if data.get(field) and data[field] != existing.get(field):
+                secretstore.store(pid, field, str(data[field]),
+                                  f"Stream Playing: {merged.name}")
+
         self.profiles[pid] = merged
         self.save()
         return merged
@@ -151,6 +171,10 @@ class Config:
             return False
         del self.profiles[pid]
         self.save()
+        try:
+            secretstore.forget(pid)
+        except secretstore.SecretStoreError as exc:
+            log.error("cannot remove the password of %s: %s", pid, exc)
         return True
 
     def set_setting(self, key: str, value: Any) -> None:

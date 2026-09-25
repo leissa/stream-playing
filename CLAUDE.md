@@ -168,9 +168,13 @@ its own `Client` (`import ".." as Sp`) and reads the daemon host and port from
 
 ## Configuration and secrets
 
-`~/.config/streamplay/config.json`, mode 0600 because it holds backend
-passwords in plain text.
+`~/.config/streamplay/config.json`, mode 0600, holds everything but the
+passwords, which `secretstore.py` keeps in the freedesktop Secret Service
+(`org.freedesktop.secrets`, not the KWallet API) under the attributes
+`application=streamplay`, `profile`, `field`.
 
+- `Config.load()` merges them into the in-memory profiles, so backends still
+  read `profile["password"]`; `Config.save()` never writes a secret field.
 - `Config.upsert()` treats a missing or empty `password` as "keep the stored
   one", so the applet can save an edited profile without ever holding the
   secret.

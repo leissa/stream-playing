@@ -23,6 +23,7 @@ check_requirements() {
     command -v kpackagetool6 >/dev/null || missing+=("kpackagetool6 (plasma-workspace)")
     python3 -c "import requests"  2>/dev/null || missing+=("python-requests")
     python3 -c "import websockets" 2>/dev/null || missing+=("python-websockets")
+    python3 -c "import secretstorage" 2>/dev/null || missing+=("python-secretstorage")
 
     if [ ${#missing[@]} -gt 0 ]; then
         die "Missing requirements: ${missing[*]}"

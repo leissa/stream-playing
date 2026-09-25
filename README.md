@@ -66,7 +66,7 @@ Everything below is packaged on Arch and most other distributions:
 
 | Needed for | Package |
 | --- | --- |
-| the service | `python`, `python-requests`, `python-websockets` |
+| the service | `python`, `python-requests`, `python-websockets`, `python-secretstorage` |
 | local playback | `mpv` |
 | Now Playing / media keys | `python-dbus`, `python-gobject` |
 | the widget | `plasma-workspace` (Plasma 6) |
@@ -131,8 +131,10 @@ whether it is connected, and several can be on at once.
 | the service | `~/.local/share/streamplay/` |
 | the widget | `~/.local/share/plasma/plasmoids/org.kde.plasma.streamplay/` |
 
-`config.json` holds backend passwords in plain text, which is why it is created
-with owner-only permissions. It can be edited by hand while the service is
+Passwords are not in `config.json` but in the desktop's keyring, through the
+freedesktop Secret Service. On Plasma that is KDE Wallet with *Use KWallet for
+the Secret Service interface* turned on in System Settings; GNOME Keyring and
+KeePassXC work as well. `config.json` can be edited by hand while the service is
 stopped.
 
 ## Running the service by hand
