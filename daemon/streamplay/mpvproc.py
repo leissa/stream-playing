@@ -8,6 +8,7 @@ URLs and react to its property changes.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -147,21 +148,41 @@ class Mpv:
                 self._observe_ids[index] = prop
                 await self.command("observe_property", index, prop)
 
-    async def _teardown(self) -> None:
-        for task in (self._reader_task, self._event_task):
-            if task:
-                task.cancel()
-        self._reader_task = self._event_task = None
-        if self._writer:
+    def _drop_ipc(self) -> None:
+        """Forget the IPC connection and fail whatever was waiting on it.
+
+        Called when the socket dies under us as well as from an orderly
+        teardown. Without it :attr:`alive` stays true -- the writer is still an
+        object, and the child has not necessarily been reaped yet -- so the
+        next command is written into the void and then waits the full timeout
+        for a reply that can never come. That is what made shutting down take
+        ten seconds whenever mpv was killed alongside the daemon, which is what
+        systemd does to everything in the unit's control group.
+        """
+        writer, self._writer, self._reader = self._writer, None, None
+        if writer is not None:
             try:
-                self._writer.close()
+                writer.close()
             except Exception:
                 pass
-        self._writer = self._reader = None
         for fut in self._pending.values():
             if not fut.done():
                 fut.set_exception(MpvError("mpv connection closed"))
         self._pending.clear()
+
+    async def _teardown(self) -> None:
+        tasks = [t for t in (self._reader_task, self._event_task)
+                 if t is not None and t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        # Let them finish before going on. Their own cleanup clears the
+        # connection, and start() is about to install a new one -- a straggler
+        # would otherwise write off a socket that had already been replaced.
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self._reader_task = self._event_task = None
+        self._drop_ipc()
         if self._proc and self._proc.returncode is None:
             self._proc.terminate()
             try:
@@ -191,9 +212,16 @@ class Mpv:
                 await self._dispatch(msg)
         except asyncio.CancelledError:
             raise
+        except (ConnectionError, OSError) as exc:
+            # mpv closing the socket is how it reports its own exit, including
+            # when it is killed alongside us. Not worth a traceback.
+            log.debug("mpv IPC read ended: %s", exc)
         except Exception:
             log.exception("mpv reader failed")
         finally:
+            # Do this before announcing the loss: the handler may well try to
+            # talk to mpv, and it should be told at once that it cannot.
+            self._drop_ipc()
             if not self._closed:
                 log.warning("mpv IPC connection lost")
                 self._events.put_nowait(("event", "ipc-closed", {}))

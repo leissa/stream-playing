@@ -161,6 +161,13 @@ stamps the source on an item.
   inline deadlocks: an end-of-file handler issues a new mpv command and then
   waits for a reply that only the blocked reader could deliver. This was a real
   bug; keep the queue.
+- **mpv dying must be noticed at once.** `Mpv._drop_ipc()` clears the
+  connection the moment the socket closes, so `alive` goes false and further
+  commands are refused immediately. Without it a command is written into a dead
+  socket and waits out its ten-second timeout -- and systemd kills everything in
+  the unit's control group together, so on shutdown mpv is always already gone.
+  That cost ten seconds and a SIGKILL on every restart, which meant the daemon
+  never ran its cleanup. `tests/test_player.py` guards it.
 - mpv reports the play position many times a second. `UnifiedPlayer._on_sink_changed`
   diffs the state and emits a small rate-limited `position` event when only
   progress changed, and a full `state` push otherwise. Use `_changed()` for

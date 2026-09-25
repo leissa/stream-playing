@@ -13,6 +13,7 @@ import pathlib
 import struct
 import sys
 import tempfile
+import time
 import wave
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -21,6 +22,7 @@ from streamplay.backends.base import (BackendError, Sink, SourceUnavailable,
                                       StreamTarget)
 from streamplay.models import Track
 from streamplay.player import UnifiedPlayer
+from streamplay.mpvproc import MpvError
 from streamplay.sinks import MpvSink
 
 FAILURES: list[str] = []
@@ -322,6 +324,56 @@ async def main() -> None:
 
         await player.set_sink(None, carry_over=False)
         await local.close()
+
+        await test_mpv_losing_its_socket()
+
+
+async def test_mpv_losing_its_socket() -> None:
+    """mpv going away must not leave commands waiting out their timeout.
+
+    systemd signals everything in a unit's control group, so on shutdown mpv
+    dies at the same moment the daemon does. If the connection is not written
+    off straight away, the next command is sent into a dead socket and then
+    waits the full ten seconds for an answer -- long enough for systemd to give
+    up and SIGKILL the daemon before it has tidied anything away.
+    """
+    sink = MpvSink(0.0)
+    await sink.start()
+    mpv = sink._mpv
+    check("mpv starts out alive", mpv.alive)
+
+    # Close the socket while mpv itself is still running, which is the state
+    # that used to go unnoticed -- the process had not been reaped yet.
+    mpv._writer.close()
+    for _ in range(50):
+        await asyncio.sleep(0.02)
+        if not mpv.alive:
+            break
+
+    check("mpv counts as gone the moment its socket dies", not mpv.alive)
+
+    started = time.monotonic()
+    try:
+        await mpv.set_property("pause", True)
+        refused = False
+    except MpvError:
+        refused = True
+    elapsed = time.monotonic() - started
+    check("and a command is refused at once, not after the timeout",
+          refused and elapsed < 1.0)
+
+    started = time.monotonic()
+    await sink.stop()
+    check("so stopping the output returns straight away",
+          time.monotonic() - started < 1.0)
+
+    # And it has to be recoverable: the next play starts a fresh mpv instead
+    # of insisting the old one is still there.
+    await sink.start()
+    check("mpv comes back after losing its socket", sink._mpv.alive)
+
+    await sink.close()
+    check("closing leaves nothing running", not sink._mpv.alive)
 
 
 if __name__ == "__main__":
