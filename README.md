@@ -1,4 +1,4 @@
-# Streamplay
+# <img src="plasmoid/package/contents/icons/streamplay.svg" width="48" align="top"> Streamplay
 
 [![tests](https://img.shields.io/github/actions/workflow/status/leissa/streamplay/tests.yml?branch=master&style=flat-square&logo=github&label=tests)](https://github.com/leissa/streamplay/actions/workflows/tests.yml)
 

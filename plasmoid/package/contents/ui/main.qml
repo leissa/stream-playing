@@ -18,7 +18,7 @@ PlasmoidItem {
     readonly property bool playing: client.playback.status === "playing"
     readonly property bool hasTrack: !!track
 
-    Plasmoid.icon: "media-playback-start"
+    Plasmoid.icon: Qt.resolvedUrl("../icons/streamplay.svg")
     Plasmoid.backgroundHints: PlasmaCore.Types.DefaultBackground
                             | PlasmaCore.Types.ConfigurableBackground
 

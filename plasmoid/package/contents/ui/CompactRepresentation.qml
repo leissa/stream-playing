@@ -59,8 +59,10 @@ MouseArea {
             Kirigami.Icon {
                 anchors.fill: parent
                 visible: cover.status !== Image.Ready
-                source: root.playing ? "media-playback-start"
+                source: !root.hasTrack ? Qt.resolvedUrl("../icons/streamplay-symbolic.svg")
+                      : root.playing ? "media-playback-start"
                                      : "media-playback-pause"
+                isMask: !root.hasTrack
                 active: compact.containsMouse
                 // Grey the icon out while the daemon is unreachable.
                 opacity: root.client.online ? 1.0 : 0.5
