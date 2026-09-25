@@ -39,8 +39,8 @@ function subtitle(track) {
 /* The icon standing for a kind of music server, used wherever one is listed. */
 function serverIcon(type) {
     switch (type) {
-    case "kodi":  return "kodi";
-    case "mpd":   return "folder-music";
-    default:      return "server-database";
+    case "kodi":  return Qt.resolvedUrl("../icons/kodi.svg");
+    case "mpd":   return Qt.resolvedUrl("../icons/mpd.svg");
+    default:      return Qt.resolvedUrl("../icons/navidrome.png");
     }
 }

@@ -205,3 +205,10 @@ Anything that speaks WebSocket can drive it; `library.*`, `queue.*`, `player.*`,
 ## Licence
 
 GPL-3.0-or-later.
+
+The server icons in `plasmoid/package/contents/icons/` come from the upstream
+projects: `kodi.svg` from the [Kodi](https://github.com/xbmc/xbmc) repository,
+`navidrome.png` from the [Navidrome](https://github.com/navidrome/navidrome)
+repository and `mpd.svg` from the [MPD](https://github.com/MusicPlayerDaemon/MPD)
+repository. Kodi is a trademark of the XBMC Foundation, and all logos remain the
+property of their respective owners.
