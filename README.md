@@ -219,7 +219,7 @@ Anything that speaks WebSocket can drive it; `library.*`, `queue.*`, `player.*`,
 
 ## Licence
 
-GPL-3.0-or-later.
+GPL-3.0-or-later; see [`LICENSE`](LICENSE).
 
 The server icons in `plasmoid/package/contents/icons/` come from the upstream
 projects: `kodi.svg` from the [Kodi](https://github.com/xbmc/xbmc) repository,

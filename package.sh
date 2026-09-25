@@ -19,6 +19,7 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 cp -r "$HERE/plasmoid/package/." "$stage/"
 cp -r "$HERE/daemon/streamplay" "$stage/contents/code/streamplay"
+cp "$HERE/LICENSE" "$stage/LICENSE"
 find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} +
 
 mkdir -p "$OUT"
