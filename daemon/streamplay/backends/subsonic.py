@@ -1,7 +1,6 @@
 """Subsonic-API client (Navidrome, Gonic, Airsonic, Subsonic itself).
 
-Only the library half lives here -- audio is streamed by mpv from the URLs
-built by :meth:`SubsonicBackend.stream_url`.
+Only the library half lives here; mpv streams the URLs :meth:`SubsonicBackend.stream_url` builds.
 """
 
 from __future__ import annotations
@@ -36,10 +35,8 @@ ALBUM_SORTS = {
     "byYearDesc": "byYear",
 }
 
-#: getAlbumList2's byYear needs a year range. Giving it backwards is the
-#: documented way to ask for the newest first.
-#: Start at 1 rather than 0: albums with no year would otherwise fill the
-#: whole first page and the real oldest releases would never be reached.
+#: getAlbumList2's byYear needs a range, reversed to ask for the newest first.
+#: It starts at 1 so undated albums do not fill the whole first page.
 YEAR_RANGE = {
     "byYear": {"fromYear": 1, "toYear": 3000},
     "byYearDesc": {"fromYear": 3000, "toYear": 1},
@@ -67,7 +64,6 @@ class SubsonicBackend(Backend):
         self._session = requests.Session()
         self._session.headers["User-Agent"] = f"{CLIENT_NAME}/1.0"
 
-    # ------------------------------------------------------------- plumbing
 
     def auth_params(self) -> dict[str, str]:
         params = {
@@ -115,7 +111,6 @@ class SubsonicBackend(Backend):
     async def _get(self, endpoint: str, **params: Any) -> dict[str, Any]:
         return await asyncio.to_thread(self._get_sync, endpoint, **params)
 
-    # ------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
         if not self.username or not self.password:
@@ -125,7 +120,6 @@ class SubsonicBackend(Backend):
     async def close(self) -> None:
         await asyncio.to_thread(self._session.close)
 
-    # -------------------------------------------------------------- mapping
 
     def _track(self, song: dict[str, Any]) -> Track:
         return Track(
@@ -168,7 +162,6 @@ class SubsonicBackend(Backend):
             cover_id=artist.get("coverArt"),
         )
 
-    # -------------------------------------------------------------- browsing
 
     async def artists(self) -> list[Artist]:
         body = await self._get("getArtists")
@@ -231,6 +224,7 @@ class SubsonicBackend(Backend):
         return [
             {
                 "id": str(p.get("id")),
+                "source": self.source,
                 "name": p.get("name") or "",
                 "trackCount": int(p.get("songCount") or 0),
                 "duration": float(p.get("duration") or 0),
@@ -244,7 +238,6 @@ class SubsonicBackend(Backend):
         songs = (body.get("playlist") or {}).get("entry") or []
         return [self._track(s) for s in songs]
 
-    # ----------------------------------------------------------------- media
 
     async def stream_target(self, track: Track) -> StreamTarget:
         return StreamTarget(url=self.stream_url(track), source=self.source)

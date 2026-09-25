@@ -15,7 +15,6 @@ log = logging.getLogger(__name__)
 class MpvSink(Sink):
     id = "local"
     name = "This computer"
-    accepts_any_url = True
 
     def __init__(self, initial_volume: float = 0.7) -> None:
         super().__init__()
@@ -30,7 +29,6 @@ class MpvSink(Sink):
     async def close(self) -> None:
         await self._mpv.close()
 
-    # ----------------------------------------------------------- mpv events
 
     async def _on_event(self, name: str, payload: dict) -> None:
         if name == "end-file":
@@ -75,7 +73,6 @@ class MpvSink(Sink):
                 self.state.buffering = buffering
                 self._changed()
 
-    # ------------------------------------------------------------- playback
 
     async def _ensure_running(self) -> None:
         if not self._mpv.alive:

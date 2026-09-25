@@ -1,8 +1,4 @@
-"""The daemon's centre.
-
-Holds every connected music service at once, the single shared queue, and the
-set of places that queue can be played. Everything else -- the WebSocket server
-for the applet, the MPRIS service for KDE -- talks to the hub.
+"""The daemon's centre: every connected service, the shared queue, and the outputs.
 """
 
 from __future__ import annotations
@@ -49,7 +45,6 @@ class Hub:
         self._art_pending: set[str] = set()
         self._settings_task: asyncio.Task | None = None
 
-    # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
         if self._mpris is not None:
@@ -104,7 +99,6 @@ class Hub:
         if self._mpris is not None:
             self._mpris.stop()
 
-    # ---------------------------------------------------------- subscribers
 
     def subscribe(self, callback: Callable[[str, dict], None]) -> None:
         self._subscribers.add(callback)
@@ -131,7 +125,6 @@ class Hub:
     def broadcast_state(self) -> None:
         self.emit("state", self.player.state())
 
-    # ------------------------------------------------------------ art/state
 
     def _decorate_state(self, state: dict[str, Any]) -> dict[str, Any]:
         state = dict(state)
@@ -174,7 +167,6 @@ class Hub:
 
         asyncio.create_task(run())
 
-    # ------------------------------------------------------- settings flush
 
     def _schedule_settings_flush(self, state: dict[str, Any]) -> None:
         settings = self.config.settings
@@ -198,7 +190,6 @@ class Hub:
 
         self._settings_task = asyncio.create_task(flush())
 
-    # -------------------------------------------------------------- sources
 
     def sources_json(self) -> list[dict[str, Any]]:
         out = []
@@ -273,9 +264,7 @@ class Hub:
 
     async def _drop_source(self, profile_id: str) -> None:
         """Tear down a service and anything that depended on it."""
-        # Every output a service brought with it goes too. They are found by
-        # the profile they belong to rather than by a composed id, so nothing
-        # here has to know which kinds of service can play audio.
+        # Outputs are found by the profile they belong to, not by a composed id.
         for sink_id, sink in [(k, v) for k, v in self.sinks.items()
                               if v.source == profile_id]:
             self.sinks.pop(sink_id, None)
@@ -304,7 +293,6 @@ class Hub:
                 except BackendError as exc:
                     log.info("reconnect of %s failed: %s", profile_id, exc)
 
-    # -------------------------------------------------------------- outputs
 
     async def set_output(self, sink_id: str, persist: bool = True) -> None:
         sink = self.sinks.get(sink_id) or self.sinks.get(LOCAL_OUTPUT)
@@ -317,7 +305,6 @@ class Hub:
             self.config.set_setting("output", sink.id)
         self.emit("state", self.player.state())
 
-    # ------------------------------------------------- resolver for player
 
     async def stream_target(self, track: Track):
         backend = self.sources.get(track.source)
@@ -332,7 +319,6 @@ class Hub:
         if backend is not None:
             await backend.scrobble(track, submission)
 
-    # -------------------------------------------------------------- library
 
     def backend(self, source: str | None) -> Backend:
         if not source:
@@ -365,7 +351,6 @@ class Hub:
             merged.extend(result)
         return merged
 
-    # ---------------------------------------------------------- queue input
 
     async def tracks_for(self, spec: dict[str, Any]) -> list[Track]:
         """Resolve a browse selection into concrete tracks."""
@@ -411,7 +396,6 @@ class Hub:
             extra=extra,
         )
 
-    # ------------------------------------------------------------- snapshot
 
     def snapshot(self) -> dict[str, Any]:
         return {

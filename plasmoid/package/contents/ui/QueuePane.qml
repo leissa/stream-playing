@@ -1,10 +1,4 @@
-/*
- * The shared queue.
- *
- * One list holds tracks from every connected service; reordering is committed
- * to the daemon on drop rather than on every hover, so a drag does not turn
- * into a burst of round trips that fight the incoming queue updates.
- */
+/* The shared queue; reordering is committed to the daemon on drop, not on hover. */
 
 import QtQuick
 import QtQuick.Layouts

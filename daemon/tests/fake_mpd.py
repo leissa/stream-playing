@@ -1,9 +1,7 @@
 """A stub MPD server, good enough to answer what the backend actually asks.
 
-The real thing needs a config file, a music directory and an audio device, so
-the tests talk to this instead: it speaks the protocol over a loopback socket,
-serves a fixed little library, and pretends to play by watching the clock.
-That keeps ``test_mpd.py`` self-contained like the other test files.
+It speaks the protocol over a loopback socket and pretends to play by watching
+the clock, which keeps ``test_mpd.py`` self-contained.
 """
 
 from __future__ import annotations
@@ -33,8 +31,7 @@ LIBRARY: list[tuple[str, dict[str, str]]] = [
         "Artist": "Cobalt Choir", "AlbumArtist": "Cobalt Choir",
         "Album": "Deep Blue", "Title": "Azure", "Track": "1",
         "Date": "2019", "Genre": "Electronic", "duration": "0.8"}),
-    # An album whose name carries both of the characters that have to be
-    # escaped on the way into a filter.
+    # An album name carrying both characters a filter has to escape.
     ("Odd/Rock'n'Roll \\ Forever/1 - Slash.flac", {
         "Artist": "The Odds", "AlbumArtist": "The Odds",
         "Album": "Rock'n'Roll \\ Forever", "Title": "Slash", "Track": "1",
@@ -43,8 +40,7 @@ LIBRARY: list[tuple[str, dict[str, str]]] = [
 
 PLAYLISTS = {"Blue Mood": ["Cobalt Choir/Deep Blue/1 - Azure.flac"]}
 
-#: Deliberately longer than the chunk size below, so the backend has to ask
-#: for the rest of it.
+#: Longer than the chunk size below, so the backend has to ask for the rest.
 ART = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 5
 ART_OWNER = "Alba Nova/First Light/1 - Dawn.flac"
 EMBEDDED = b"\xff\xd8\xff" + b"jpeg" * 20
@@ -90,12 +86,8 @@ def split_args(line: str) -> list[str]:
 def parse_filter(text: str, fold: bool = False):
     """Understand the subset of MPD's filter grammar the backend emits.
 
-    ``(base '')``, ``(Tag == 'value')``, ``(Tag contains 'value')`` and those
-    joined with ``AND``. Anything else is an error here, which is the point:
-    if the backend starts sending something new, the tests say so.
-
-    ``fold`` matches without regard to case, which is the only difference
-    between MPD's ``find`` and its ``search``.
+    Anything else is an error here, so a new spelling shows up as a failure.
+    ``fold`` is the only difference between MPD's ``find`` and its ``search``.
     """
     text = text.strip()
     if not (text.startswith("(") and text.endswith(")")):
@@ -182,7 +174,6 @@ class FakeMpd:
         self._waiters: list[asyncio.Event] = []
         self._ticker: asyncio.Task | None = None
 
-    # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
         self.server = await asyncio.start_server(
@@ -214,7 +205,6 @@ class FakeMpd:
         for event in self._waiters:
             event.set()
 
-    # ------------------------------------------------------------- playback
 
     def duration(self) -> float:
         if not self.queue:
@@ -229,7 +219,6 @@ class FakeMpd:
             return self.offset + (time.monotonic() - self.started)
         return self.offset
 
-    # ---------------------------------------------------------- connections
 
     async def _serve(self, reader: asyncio.StreamReader,
                      writer: asyncio.StreamWriter) -> None:
@@ -270,7 +259,6 @@ class FakeMpd:
         finally:
             writer.close()
 
-    # ------------------------------------------------------------- commands
 
     async def _run(self, args: list[str],
                    reader: asyncio.StreamReader) -> list[bytes]:
@@ -307,12 +295,6 @@ class FakeMpd:
             lines.append("song: 0")
         return lines
 
-    def _cmd_currentsong(self, args):
-        if not self.queue:
-            return []
-        return self._song_lines([s for s in self.songs
-                                 if s[0] == self.queue[0]])
-
     # -- browsing ---------------------------------------------------------
 
     def _song_lines(self, songs) -> list[str]:
@@ -324,18 +306,14 @@ class FakeMpd:
         return out
 
     def _matching(self, args: list[str], fold: bool = False):
-        """Both filter spellings: one expression, or tag/value pairs."""
+        """The songs a command's filter selects, and whatever follows it.
+
+        The filter is optional, and always the modern parenthesised form.
+        """
         if args and args[0].startswith("("):
-            predicate = parse_filter(args[0], fold)
-            rest = args[1:]
-        elif len(args) >= 2 and args[0].lower() in CANONICAL:
-            tag, want = args[0], args[1]
-            norm = str.casefold if fold else (lambda value: value)
-            predicate = lambda song: norm(lookup(song, tag)) == norm(want)
-            rest = args[2:]
+            predicate, rest = parse_filter(args[0], fold), args[1:]
         else:
-            predicate = lambda song: True
-            rest = args
+            predicate, rest = (lambda song: True), args
         songs = [s for s in self.songs if predicate(s)]
         if "window" in rest:
             start, _, end = rest[rest.index("window") + 1].partition(":")

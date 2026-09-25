@@ -1,8 +1,6 @@
-"""Connection profiles and daemon settings.
+"""Connection profiles and daemon settings, in one hand-editable JSON file.
 
-The whole configuration lives in a single JSON file so it can be edited by hand
-and copied between machines. It contains backend passwords, so the file is
-created and re-chmod'ed to 0600 on every save.
+It holds backend passwords, so it is re-chmod'ed to 0600 on every save.
 """
 
 from __future__ import annotations
@@ -42,13 +40,11 @@ def slugify(name: str) -> str:
 class Profile(dict):
     """One backend configuration.
 
-    Common keys: ``id``, ``name``, ``type`` (``subsonic``/``kodi``/``mpd``).
+    Common: ``id``, ``name``, ``type`` (``subsonic``/``kodi``/``mpd``).
     Subsonic: ``url``, ``username``, ``password``, ``legacyAuth``, ``verifyTls``.
     Kodi: ``host``, ``port``, ``username``, ``password``, ``wsPort``, ``useTls``.
     MPD: ``host``, ``port``, ``password``, ``musicDirectory``, ``socket``.
-    ``socket`` is a path to MPD's unix socket, used instead of host/port; it is
-    not in the settings dialog, but MPD tells a socket client where its music
-    lives, so setting it by hand saves configuring ``musicDirectory`` too.
+    ``socket`` replaces host/port and lets MPD reveal ``musicDirectory`` itself.
     """
 
     @property
@@ -64,10 +60,7 @@ class Profile(dict):
         return str(self.get("type", "subsonic"))
 
     def redacted(self) -> dict[str, Any]:
-        """A copy safe to send to the applet.
-
-        Secrets become the sentinel ``True``/``False`` under ``has<Field>`` so
-        the UI can show "password set" without ever receiving it.
+        """A copy safe for the applet, with each secret reduced to a ``has<Field>`` flag.
         """
         out = {k: v for k, v in self.items() if k not in SECRET_FIELDS}
         for f in SECRET_FIELDS:
@@ -79,11 +72,9 @@ class Config:
     def __init__(self, path: Path = CONFIG_FILE) -> None:
         self.path = path
         self.profiles: dict[str, Profile] = {}
-        self.active_id: str | None = None
         self.settings: dict[str, Any] = {}
         self.load()
 
-    # ------------------------------------------------------------------ io
 
     def load(self) -> None:
         if not self.path.exists():
@@ -101,10 +92,6 @@ class Config:
             prof = Profile(data)
             prof["id"] = pid
             self.profiles[pid] = prof
-
-        self.active_id = raw.get("active") or None
-        if self.active_id not in self.profiles:
-            self.active_id = None
 
         self.settings = self._default_settings()
         self.settings.update(raw.get("settings") or {})
@@ -125,7 +112,6 @@ class Config:
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "active": self.active_id,
             "profiles": {pid: dict(p) for pid, p in self.profiles.items()},
             "settings": self.settings,
         }
@@ -135,13 +121,9 @@ class Config:
         tmp.replace(self.path)
         os.chmod(self.path, 0o600)
 
-    # ------------------------------------------------------------- profiles
 
     def upsert(self, data: dict[str, Any]) -> Profile:
-        """Create or update a profile and return the stored copy.
-
-        A profile submitted without a password keeps the one already on disk,
-        so the applet can save edits without ever holding the secret.
+        """Create or update a profile; no password means keep the stored one.
         """
         pid = str(data.get("id") or "").strip()
         if not pid:
@@ -161,8 +143,6 @@ class Config:
         merged["id"] = pid
 
         self.profiles[pid] = merged
-        if self.active_id is None:
-            self.active_id = pid
         self.save()
         return merged
 
@@ -170,22 +150,8 @@ class Config:
         if pid not in self.profiles:
             return False
         del self.profiles[pid]
-        if self.active_id == pid:
-            self.active_id = next(iter(self.profiles), None)
         self.save()
         return True
-
-    def set_active(self, pid: str | None) -> None:
-        if pid is not None and pid not in self.profiles:
-            raise KeyError(pid)
-        self.active_id = pid
-        self.save()
-
-    @property
-    def active(self) -> Profile | None:
-        if self.active_id is None:
-            return None
-        return self.profiles.get(self.active_id)
 
     def set_setting(self, key: str, value: Any) -> None:
         self.settings[key] = value

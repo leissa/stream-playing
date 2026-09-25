@@ -1,12 +1,5 @@
-"""Interfaces for the two kinds of thing the daemon plugs together.
-
-A *backend* is a music library you can browse and get a playable stream out of.
-A *sink* is somewhere that stream can come out of -- this machine's speakers via
-mpv, or a Kodi box across the room.
-
-Keeping them apart is what lets several services be connected at once and share
-a single queue: the queue holds tracks from any backend, and whichever sink is
-selected plays them one after another.
+"""Interfaces for the two kinds of thing the daemon plugs together: a *backend* is
+a library you browse, a *sink* is somewhere audio comes out.
 """
 
 from __future__ import annotations
@@ -25,10 +18,7 @@ class BackendError(RuntimeError):
 
 
 class SourceUnavailable(BackendError):
-    """The service a track came from is not connected at the moment.
-
-    Distinct from a playback failure: the track may be perfectly fine, so the
-    player skips it instead of treating it as a broken file.
+    """The service a track came from is not connected, so the player skips it.
     """
 
 
@@ -36,15 +26,13 @@ class SourceUnavailable(BackendError):
 class StreamTarget:
     """How to play one track.
 
-    ``url`` is something any player can open. ``native`` is an optional
-    backend-specific handle -- a Kodi song id, say -- that the matching sink can
-    use instead to get better metadata than a bare URL would give.
+    ``url`` is openable by any player.
+    ``native`` is a backend-specific handle its own sink can use instead.
     """
 
     url: str | None = None
     native: dict[str, Any] | None = None
     source: str = ""
-    mime: str | None = None
 
 
 class Backend(abc.ABC):
@@ -65,7 +53,6 @@ class Backend(abc.ABC):
     async def close(self) -> None:
         return None
 
-    # ------------------------------------------------------------- browsing
 
     @abc.abstractmethod
     async def artists(self) -> list[Artist]: ...
@@ -91,12 +78,13 @@ class Backend(abc.ABC):
         return []
 
     async def playlists(self) -> list[dict[str, Any]]:
+        """Stored playlists. Each carries its ``source``, like every other
+        library item, because ids are only unique within one service."""
         return []
 
     async def playlist_tracks(self, playlist_id: str) -> list[Track]:
         return []
 
-    # ---------------------------------------------------------------- media
 
     @abc.abstractmethod
     async def stream_target(self, track: Track) -> StreamTarget:
@@ -107,19 +95,13 @@ class Backend(abc.ABC):
         return None
 
     async def cover_bytes(self, cover_id: str, size: int) -> bytes | None:
-        """Cover art fetched by the backend itself.
-
-        For services that do not hand out an HTTP URL for artwork -- MPD sends
-        it down the control connection -- and tried before
-        :meth:`cover_request`. Returning None means "nothing here", and the
-        cache falls back to the URL form.
+        """Cover art the backend fetches itself, tried before :meth:`cover_request`.
         """
         return None
 
     async def scrobble(self, track: Track, submission: bool) -> None:
         return None
 
-    # -------------------------------------------------------------- helpers
 
     def tag(self, item):
         """Stamp an item with the profile it came from and hand it back."""
@@ -140,20 +122,14 @@ class SinkState:
 
 
 class Sink(abc.ABC):
-    """Somewhere audio comes out.
-
-    The sink knows nothing about queues: it plays one target, reports progress,
-    and tells the player when the track ended so the player can pick the next.
+    """Somewhere audio comes out; it plays one target and knows nothing of queues.
     """
 
     #: Identifier used on the wire, e.g. ``local`` or ``kodi:livingroom``.
     id: str = "sink"
     name: str = "Sink"
-    #: Profile id of the service this output belongs to, empty for the local
-    #: one. It is what lets the hub tear an output down with its library.
+    #: Profile id this output belongs to, so the hub can drop both together.
     source: str = ""
-    #: False when the sink can only play media from its own service.
-    accepts_any_url: bool = True
 
     def __init__(self) -> None:
         self.state = SinkState()

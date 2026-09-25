@@ -1,10 +1,4 @@
-/*
- * Stream Playing -- control a self-hosted music library from the Plasma panel.
- *
- * The applet is a thin view over the streamplay daemon: all playback, library
- * access and MPRIS integration happen there, so everything here is bound to the
- * state the daemon pushes over its WebSocket.
- */
+/* Stream Playing: a thin view over the streamplay daemon. */
 
 import QtQuick
 import QtQuick.Layouts

@@ -1,8 +1,6 @@
 """End-to-end test of the control protocol with two services connected at once.
 
-Registers a throwaway backend type, starts the real hub and WebSocket server,
-and drives them exactly as the applet does. Run it with
-``python3 tests/test_protocol.py`` from the ``daemon`` directory.
+Run with ``python3 tests/test_protocol.py`` from ``daemon``.
 """
 
 from __future__ import annotations
@@ -75,8 +73,7 @@ class FakeBackend(Backend):
     async def artist_albums(self, artist_id: str) -> list[Album]:
         return await self.albums()
 
-    #: Deliberately out of order, and one without a year, so the daemon's own
-    #: merge sort is what gets tested rather than the backend's.
+    #: Out of order, and one undated, so the daemon's merge sort is what is tested.
     ALBUMS = (("al1", 2005), ("al2", 1990), ("al3", None))
 
     async def albums(self, sort: str = "alphabetical", offset: int = 0,
@@ -176,7 +173,6 @@ async def main() -> None:
         await hub.start()
 
         async with Applet(f"ws://127.0.0.1:{config.settings['port']}/") as applet:
-            # -------------------------------------------------- handshake
             reply = await applet.call("hello")
             snapshot = reply["result"]
             check("hello succeeds", reply["ok"])
@@ -188,7 +184,6 @@ async def main() -> None:
             check("passwords never reach the applet",
                   all("password" not in p for p in snapshot["profiles"]))
 
-            # ---------------------------------------------- merged library
             reply = await applet.call("library.artists")
             names = sorted(a["name"] for a in reply["result"]["artists"])
             check("artists from both services are merged",
@@ -213,8 +208,7 @@ async def main() -> None:
             check("byYearDesc sorts newest first, undated last",
                   years == [2005, 2005, 1990, 1990, None, None])
 
-            # An artist's own albums have to follow the same setting, or the
-            # sort only appears to work until you drill into something.
+            # An artist's albums must follow the same setting, or the sort only seems to work.
             reply = await applet.call("library.artistAlbums", id="a1",
                                       source="alpha", sort="byYearDesc")
             years = [a.get("year") for a in reply["result"]["albums"]]
@@ -239,7 +233,6 @@ async def main() -> None:
             check("search spans every service",
                   len(reply["result"]["tracks"]) == 4)
 
-            # ------------------------------------------------ shared queue
             await applet.call("queue.add", albumId="al1", source="alpha",
                               mode="replace", play=True)
             await applet.call("queue.add", albumId="al1", source="beta",
@@ -276,7 +269,6 @@ async def main() -> None:
             reply = await applet.call("queue.get")
             check("dequeue removes one entry", len(reply["result"]["tracks"]) == 3)
 
-            # ------------------------------------------------- transport
             await applet.call("player.pause")
             await asyncio.sleep(0.3)
             reply = await applet.call("hello")
@@ -291,7 +283,6 @@ async def main() -> None:
                   abs(state["volume"] - 0.25) < 0.02
                   and state["repeat"] == "all" and state["shuffle"] is True)
 
-            # -------------------------------------------- service lifecycle
             reply = await applet.call("sources.disconnect", id="beta")
             states = {s["id"]: s["state"] for s in reply["result"]["sources"]}
             check("a service can be disconnected on its own",
@@ -313,7 +304,6 @@ async def main() -> None:
             reply = await applet.call("profiles.delete", id="broken")
             check("and can be deleted again", reply["result"]["removed"])
 
-            # ----------------------------------------------------- errors
             reply = await applet.call("player.seek", position="not a number")
             check("a bad argument comes back as an error, not a crash",
                   not reply["ok"] and "error" in reply)

@@ -1,8 +1,5 @@
-"""Localhost control surface for the Plasma applet.
-
-One port serves both halves: a WebSocket for JSON-RPC style calls plus pushed
-state, and a couple of plain HTTP routes for things QML's Image loader needs to
-fetch by URL (cover art). Everything is bound to the loopback interface.
+"""Localhost control surface for the applet: a WebSocket plus an HTTP route for
+cover art, both on one loopback port.
 """
 
 from __future__ import annotations
@@ -45,11 +42,9 @@ def _source(params: dict[str, Any]) -> str | None:
 
 
 def _sort_albums(albums: list, sort: str) -> list:
-    """Order an album list the way the user asked.
+    """Order an album list the way the user asked, since a merged list has no order.
 
-    Backends return their own order, and a merged list has no order at all, so
-    every album list goes through here. Sorts that need data we do not carry
-    per album -- play counts, date added -- are left to the backend.
+    Sorts needing data we do not carry per album are left to the backend.
     """
     if sort == "alphabetical":
         albums.sort(key=lambda a: a.name.lower())
@@ -64,7 +59,6 @@ def _sort_albums(albums: list, sort: str) -> list:
     return albums
 
 
-# --------------------------------------------------------------- handshake
 
 @method("hello")
 async def _hello(hub: Hub, params: dict) -> Any:
@@ -77,7 +71,6 @@ async def _status(hub: Hub, params: dict) -> Any:
             "backendTypes": sorted(BACKEND_TYPES)}
 
 
-# ---------------------------------------------------------------- profiles
 
 def _announce_profiles(hub: Hub) -> None:
     hub.emit("profiles", {"profiles": hub.config.redacted_profiles()})
@@ -126,7 +119,6 @@ async def _profiles_test(hub: Hub, params: dict) -> Any:
     return {"ok": True}
 
 
-# ----------------------------------------------------------------- sources
 
 @method("sources.list")
 async def _sources_list(hub: Hub, params: dict) -> Any:
@@ -158,7 +150,6 @@ async def _sources_reconnect(hub: Hub, params: dict) -> Any:
     return {"sources": hub.sources_json()}
 
 
-# ----------------------------------------------------------------- outputs
 
 @method("outputs.list")
 async def _outputs_list(hub: Hub, params: dict) -> Any:
@@ -171,7 +162,6 @@ async def _outputs_set(hub: Hub, params: dict) -> Any:
     return {"outputs": hub.outputs_json()}
 
 
-# ------------------------------------------------------------------ player
 
 def _simple(name: str, attr: str) -> None:
     async def handler(hub: Hub, params: dict) -> Any:
@@ -221,7 +211,6 @@ async def _set_repeat(hub: Hub, params: dict) -> Any:
     return {"ok": True}
 
 
-# ------------------------------------------------------------------- queue
 
 @method("queue.get")
 async def _queue_get(hub: Hub, params: dict) -> Any:
@@ -268,11 +257,7 @@ async def _queue_play_index(hub: Hub, params: dict) -> Any:
     return {"ok": True}
 
 
-# ------------------------------------------------------------------library
-#
-# Every library call takes an optional ``source``. Without one it runs against
-# every connected service and the results are merged, which is what makes the
-# browser feel like a single library.
+# Every library call takes an optional ``source``; without one it fans out and merges.
 
 @method("library.artists")
 async def _artists(hub: Hub, params: dict) -> Any:
@@ -285,8 +270,7 @@ async def _artists(hub: Hub, params: dict) -> Any:
 async def _artist_albums(hub: Hub, params: dict) -> Any:
     backend = hub.backend(_source(params))
     albums = await backend.artist_albums(str(params.get("id") or ""))
-    # A discography reads best in year order, so that is the default here even
-    # though the album list as a whole may be sorted some other way.
+    # A discography reads best in year order, whatever the album list uses.
     sort = str(params.get("sort") or "byYear")
     return {"albums": [a.to_json() for a in _sort_albums(albums, sort)]}
 
@@ -349,17 +333,8 @@ async def _genre_albums(hub: Hub, params: dict) -> Any:
 
 @method("library.playlists")
 async def _playlists(hub: Hub, params: dict) -> Any:
-    source = _source(params)
-    backends = hub.selected(source)
-    results = await asyncio.gather(
-        *(b.playlists() for b in backends), return_exceptions=True)
-    out: list[dict[str, Any]] = []
-    for backend, result in zip(backends, results):
-        if isinstance(result, Exception):
-            continue
-        for entry in result:
-            out.append({**entry, "source": backend.source})
-    return {"playlists": out}
+    playlists = await hub.gather(_source(params), lambda b: b.playlists())
+    return {"playlists": playlists}
 
 
 @method("library.playlistTracks")
@@ -369,7 +344,6 @@ async def _playlist_tracks(hub: Hub, params: dict) -> Any:
     return {"tracks": [t.to_json() for t in tracks]}
 
 
-# ---------------------------------------------------------------- settings
 
 @method("settings.set")
 async def _settings_set(hub: Hub, params: dict) -> Any:
@@ -378,7 +352,6 @@ async def _settings_set(hub: Hub, params: dict) -> Any:
     return {"settings": hub.config.settings}
 
 
-# ------------------------------------------------------------------ server
 
 class ControlServer:
     def __init__(self, hub: Hub, host: str = "127.0.0.1", port: int = 8760) -> None:
@@ -402,7 +375,6 @@ class ControlServer:
             self._server.close()
             await self._server.wait_closed()
 
-    # -------------------------------------------------------------- http
 
     async def _http(self, connection: ServerConnection,
                     request: Request) -> Response | None:
@@ -440,7 +412,6 @@ class ControlServer:
         })
         return Response(200, "OK", headers, body)
 
-    # --------------------------------------------------------- websocket
 
     async def _handle(self, connection: ServerConnection) -> None:
         loop = asyncio.get_running_loop()

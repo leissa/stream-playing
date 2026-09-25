@@ -1,11 +1,4 @@
-/*
- * Manage the music servers.
- *
- * Several can be connected at the same time; each one has its own on/off switch
- * and they all feed the same queue. This page talks to the daemon directly --
- * the servers live there, not in the applet's own settings -- so edits apply as
- * soon as you save them.
- */
+/* Manage the music servers, which live in the daemon rather than in applet settings. */
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -51,6 +44,21 @@ KCM.SimpleKCM {
         return type === "subsonic" || type === "kodi";
     }
 
+    /* Three ports are configured on this page and they differ only in which
+       field they write to, so the plumbing is written once. */
+    component PortField: QQC2.SpinBox {
+        property string field: ""
+        property int fallback: 0
+
+        from: 1
+        to: 65535
+        editable: true
+        value: page.draft && page.draft[field] ? page.draft[field] : fallback
+        textFromValue: value => value.toString()
+        valueFromText: text => parseInt(text, 10)
+        onValueModified: page.draft[field] = value
+    }
+
     function editExisting(id) {
         for (let i = 0; i < client.profileList.length; ++i) {
             if (client.profileList[i].id === id) {
@@ -88,7 +96,6 @@ KCM.SimpleKCM {
         anchors.right: parent.right
         spacing: Kirigami.Units.largeSpacing
 
-        // ------------------------------------------------------------ list
 
         Kirigami.InlineMessage {
             Layout.fillWidth: true
@@ -159,9 +166,7 @@ KCM.SimpleKCM {
                                 client.send(checked ? "sources.connect"
                                                     : "sources.disconnect",
                                             { id: modelData.id });
-                                // Clicking breaks the binding above. Restore it
-                                // so the daemon has the last word -- it may well
-                                // fail to connect.
+                                // Clicking breaks the binding, and the daemon may fail to connect.
                                 checked = Qt.binding(() => modelData.enabled);
                             }
                         }
@@ -205,30 +210,22 @@ KCM.SimpleKCM {
             RowLayout {
                 Layout.topMargin: Kirigami.Units.smallSpacing
 
-                QQC2.Button {
-                    icon.name: "list-add"
-                    text: i18n("Add Navidrome / Subsonic…")
-                    onClicked: {
-                        page.draft = page.blankProfile("subsonic");
-                        page.status = "";
-                    }
-                }
+                Repeater {
+                    model: [
+                        { type: "subsonic",
+                          label: i18n("Add Navidrome / Subsonic…") },
+                        { type: "kodi", label: i18n("Add Kodi…") },
+                        { type: "mpd",  label: i18n("Add MPD…") },
+                    ]
 
-                QQC2.Button {
-                    icon.name: "list-add"
-                    text: i18n("Add Kodi…")
-                    onClicked: {
-                        page.draft = page.blankProfile("kodi");
-                        page.status = "";
-                    }
-                }
-
-                QQC2.Button {
-                    icon.name: "list-add"
-                    text: i18n("Add MPD…")
-                    onClicked: {
-                        page.draft = page.blankProfile("mpd");
-                        page.status = "";
+                    QQC2.Button {
+                        required property var modelData
+                        icon.name: "list-add"
+                        text: modelData.label
+                        onClicked: {
+                            page.draft = page.blankProfile(modelData.type);
+                            page.status = "";
+                        }
                     }
                 }
 
@@ -236,7 +233,6 @@ KCM.SimpleKCM {
             }
         }
 
-        // ------------------------------------------------------------ form
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -277,42 +273,27 @@ KCM.SimpleKCM {
                     onTextEdited: page.draft.host = text
                 }
 
-                QQC2.SpinBox {
+                PortField {
                     Kirigami.FormData.label: i18n("Web interface port:")
                     visible: page.draft && page.draft.type === "kodi"
-                    from: 1
-                    to: 65535
-                    editable: true
-                    value: page.draft && page.draft.port ? page.draft.port : 8080
-                    textFromValue: value => value.toString()
-                    valueFromText: text => parseInt(text, 10)
-                    onValueModified: page.draft.port = value
+                    field: "port"
+                    fallback: 8080
                 }
 
-                QQC2.SpinBox {
+                PortField {
                     Kirigami.FormData.label: i18n("Event port:")
                     visible: page.draft && page.draft.type === "kodi"
-                    from: 1
-                    to: 65535
-                    editable: true
-                    value: page.draft && page.draft.wsPort ? page.draft.wsPort : 9090
-                    textFromValue: value => value.toString()
-                    valueFromText: text => parseInt(text, 10)
-                    onValueModified: page.draft.wsPort = value
+                    field: "wsPort"
+                    fallback: 9090
                 }
 
                 // -- MPD -----------------------------------------------------
 
-                QQC2.SpinBox {
+                PortField {
                     Kirigami.FormData.label: i18n("Port:")
                     visible: page.draft && page.draft.type === "mpd"
-                    from: 1
-                    to: 65535
-                    editable: true
-                    value: page.draft && page.draft.port ? page.draft.port : 6600
-                    textFromValue: value => value.toString()
-                    valueFromText: text => parseInt(text, 10)
-                    onValueModified: page.draft.port = value
+                    field: "port"
+                    fallback: 6600
                 }
 
                 ColumnLayout {

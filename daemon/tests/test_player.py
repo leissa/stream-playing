@@ -1,8 +1,6 @@
-"""Exercises the queue against a real mpv process.
+"""Exercises the queue against a real mpv process, generating its own tones.
 
-Run with ``python3 tests/test_player.py`` from the ``daemon`` directory. The
-tones are generated on the fly, so the only requirement is that mpv is
-installed and has some audio output available (a null sink is fine).
+Run with ``python3 tests/test_player.py`` from ``daemon``.
 """
 
 from __future__ import annotations
@@ -18,8 +16,7 @@ import wave
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from streamplay.backends.base import (BackendError, Sink, SourceUnavailable,
-                                      StreamTarget)
+from streamplay.backends.base import Sink, SourceUnavailable, StreamTarget
 from streamplay.models import Track
 from streamplay.player import UnifiedPlayer
 from streamplay.mpvproc import MpvError
@@ -146,7 +143,6 @@ async def main() -> None:
         await local.start()
         await player.set_sink(local)
 
-        # ---------------------------------------------------------- basics
         await player.enqueue(navidrome.tracks(4), mode="replace")
         await asyncio.sleep(1.0)
         state = player.state()
@@ -182,7 +178,6 @@ async def main() -> None:
               state["status"] == "playing" and not state["error"]
               and state["position"] > 0.1)
 
-        # ------------------------------------------------- repeat / shuffle
         await player.set_repeat("one")
         await player.play_index(0)
         await asyncio.sleep(4.0)
@@ -213,7 +208,6 @@ async def main() -> None:
         await player.set_repeat("none")
         await player.set_shuffle(False)
 
-        # ------------------------------------------------------ queue edits
         await player.enqueue(navidrome.tracks(4), mode="replace")
         await asyncio.sleep(0.6)
         await player.play_index(1)
@@ -233,7 +227,6 @@ async def main() -> None:
         check("removing what is playing moves on rather than stopping",
               state["track"]["title"] != playing and state["status"] == "playing")
 
-        # -------------------------------------------- one queue, two sources
         mixed = [navidrome.tracks(4)[0], kodi.tracks(4)[0],
                  navidrome.tracks(4)[1], kodi.tracks(4)[1]]
         await player.enqueue(mixed, mode="replace")
@@ -255,7 +248,6 @@ async def main() -> None:
               player.state()["track"]["source"] == "navidrome"
               and player.state()["status"] == "playing")
 
-        # ------------------------------------------------- output switching
         await player.play_index(0)
         await asyncio.sleep(1.5)
         before = player.state()
@@ -275,7 +267,6 @@ async def main() -> None:
         await asyncio.sleep(0.5)
         check("switching back works", player.state()["output"] == "local")
 
-        # -------------------------------------- a source that went offline
         orphan = Track(id="1", title="Orphan", duration=3.0,
                        backend="fake", source="not-connected")
         await player.enqueue([orphan], mode="replace")
@@ -284,9 +275,7 @@ async def main() -> None:
         check("a track from a disconnected service reports an error",
               bool(state["error"]) and state["status"] == "stopped")
 
-        # ------------------------- a service switched off mid-queue
-        # A handful of tracks from a disconnected service must not stop the
-        # queue: the player should step over them and play the rest.
+        # Tracks from a disconnected service must be stepped over, not fatal.
         gone = [Track(id="1", title="Gone 1", duration=3.0, backend="fake",
                       source="switched-off"),
                 Track(id="2", title="Gone 2", duration=3.0, backend="fake",
@@ -299,8 +288,7 @@ async def main() -> None:
               state["status"] == "playing"
               and state["track"]["source"] == "navidrome")
 
-        # With nothing playable it has to give up, but say so rather than
-        # looping through the queue for ever.
+        # With nothing playable it must give up rather than loop for ever.
         await player.enqueue(gone, mode="replace")
         await asyncio.sleep(1.5)
         state = player.state()
@@ -309,7 +297,6 @@ async def main() -> None:
         check("and explains why",
               "queue" in (state["error"] or "").lower())
 
-        # ------------------------------------------------------------- misc
         await player.enqueue(navidrome.tracks(2), mode="replace")
         await asyncio.sleep(0.5)
         await player.set_volume(0.33)
@@ -331,19 +318,14 @@ async def main() -> None:
 async def test_mpv_losing_its_socket() -> None:
     """mpv going away must not leave commands waiting out their timeout.
 
-    systemd signals everything in a unit's control group, so on shutdown mpv
-    dies at the same moment the daemon does. If the connection is not written
-    off straight away, the next command is sent into a dead socket and then
-    waits the full ten seconds for an answer -- long enough for systemd to give
-    up and SIGKILL the daemon before it has tidied anything away.
+    systemd signals a whole control group, so mpv dies as the daemon does.
     """
     sink = MpvSink(0.0)
     await sink.start()
     mpv = sink._mpv
     check("mpv starts out alive", mpv.alive)
 
-    # Close the socket while mpv itself is still running, which is the state
-    # that used to go unnoticed -- the process had not been reaped yet.
+    # Close the socket while mpv is still running and not yet reaped.
     mpv._writer.close()
     for _ in range(50):
         await asyncio.sleep(0.02)
@@ -367,8 +349,7 @@ async def test_mpv_losing_its_socket() -> None:
     check("so stopping the output returns straight away",
           time.monotonic() - started < 1.0)
 
-    # And it has to be recoverable: the next play starts a fresh mpv instead
-    # of insisting the old one is still there.
+    # It also has to be recoverable, with the next play starting a fresh mpv.
     await sink.start()
     check("mpv comes back after losing its socket", sink._mpv.alive)
 

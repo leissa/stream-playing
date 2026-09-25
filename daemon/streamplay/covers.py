@@ -1,8 +1,4 @@
-"""On-disk cover art cache.
-
-The applet and the MPRIS ``artUrl`` both need a URL they can load without
-knowing any backend credentials, so the daemon fetches art once, stores it under
-the XDG cache directory and hands out a local path or a localhost URL.
+"""On-disk cover art cache, so the applet and MPRIS get a URL needing no credentials.
 """
 
 from __future__ import annotations
@@ -86,12 +82,9 @@ class CoverCache:
 
     async def _retrieve(self, backend, key: str, cover_id: str,
                         size: int) -> Path | None:
-        """Get the art however this backend is able to hand it over.
+        """Get the art however this backend hands it over.
 
-        Most services answer with an HTTP URL, which is fetched in a thread
-        because ``requests`` blocks. MPD instead sends the bytes down its own
-        control connection, so that path is asked first and stays on the event
-        loop.
+        An HTTP URL is fetched in a thread because ``requests`` blocks.
         """
         data = await backend.cover_bytes(cover_id, size)
         if data:

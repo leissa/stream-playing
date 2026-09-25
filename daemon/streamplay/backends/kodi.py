@@ -1,9 +1,5 @@
-"""Kodi over JSON-RPC.
-
-Kodi shows up twice: as a library you can browse (:class:`KodiBackend`) and as
-somewhere audio can come out (:class:`KodiSink`). The two are independent -- you
-can browse a Kodi library and play it on this machine, or send Navidrome tracks
-to the Kodi box, because the daemon owns the queue in both directions.
+"""Kodi over JSON-RPC, as both a library (:class:`KodiBackend`) and an output
+(:class:`KodiSink`).
 """
 
 from __future__ import annotations
@@ -22,8 +18,6 @@ from ..models import Album, Artist, Track
 from .base import Backend, BackendError, Sink, StreamTarget
 
 log = logging.getLogger(__name__)
-
-AUDIO_PLAYLIST = 0
 
 SONG_PROPERTIES = [
     "title", "artist", "artistid", "album", "albumid", "duration",
@@ -100,7 +94,6 @@ class KodiBackend(Backend):
         self._session.headers["Content-Type"] = "application/json"
         self._ids = itertools.count(1)
 
-    # ------------------------------------------------------------- plumbing
 
     def _call_sync(self, method: str, params: dict[str, Any] | None = None) -> Any:
         payload = {
@@ -129,7 +122,6 @@ class KodiBackend(Backend):
     async def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
         return await asyncio.to_thread(self._call_sync, method, params)
 
-    # ------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
         result = await self.call("JSONRPC.Version")
@@ -140,7 +132,6 @@ class KodiBackend(Backend):
     async def close(self) -> None:
         await asyncio.to_thread(self._session.close)
 
-    # -------------------------------------------------------------- mapping
 
     def _track(self, song: dict[str, Any]) -> Track:
         song_id = song.get("songid", song.get("id"))
@@ -184,7 +175,6 @@ class KodiBackend(Backend):
             cover_id=artist.get("thumbnail") or None,
         )
 
-    # -------------------------------------------------------------- browsing
 
     async def artists(self) -> list[Artist]:
         result = await self.call("AudioLibrary.GetArtists", {
@@ -267,7 +257,6 @@ class KodiBackend(Backend):
         })
         return [self._album(a) for a in (result or {}).get("albums") or []]
 
-    # ----------------------------------------------------------------- media
 
     async def stream_target(self, track: Track) -> StreamTarget:
         """Ask Kodi to expose the song over HTTP so any sink can play it."""
@@ -278,8 +267,7 @@ class KodiBackend(Backend):
 
         path = track.extra.get("file")
         if not path and song_id is not None:
-            # The applet only round-trips public track fields, so look the
-            # on-disk path up again when it is needed for local playback.
+            # The applet round-trips only public fields, so look the path up again.
             details = await self.call("AudioLibrary.GetSongDetails", {
                 "songid": int(song_id), "properties": ["file"],
             })
@@ -313,10 +301,7 @@ class KodiBackend(Backend):
 
 
 class KodiSink(Sink):
-    """Plays one track at a time on a Kodi instance.
-
-    The daemon keeps the queue, so Kodi is only ever handed a single item and
-    its own playlist is deliberately left alone.
+    """Plays one track at a time on a Kodi instance, leaving its own playlist alone.
     """
 
     POLL_INTERVAL = 1.0
@@ -345,7 +330,6 @@ class KodiSink(Sink):
                 task.cancel()
         self._notify_task = self._poll_task = None
 
-    # ------------------------------------------------------------ live feed
 
     async def _notification_loop(self) -> None:
         url = f"ws://{self.backend.host}:{self.backend.ws_port}/jsonrpc"
@@ -448,7 +432,6 @@ class KodiSink(Sink):
         except BackendError:
             pass
 
-    # ------------------------------------------------------------- playback
 
     async def play(self, target: StreamTarget, track: Track) -> None:
         if target.native and target.source == self.backend.source:

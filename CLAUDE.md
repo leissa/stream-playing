@@ -1,47 +1,35 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## What this is
-
-A Plasma 6 widget for self-hosted music libraries (Navidrome/Subsonic, Kodi and
-MPD), split into a Python user service (`daemon/`) and a pure-QML applet
-(`plasmoid/`). The split is not optional: MPRIS2 and audio playback cannot be
-driven from QML, and keeping them in a daemon means music survives a
-plasmashell restart. See `README.md` for the user-facing description.
+A Plasma 6 widget for self-hosted music libraries (Navidrome/Subsonic, Kodi,
+MPD): a Python user service (`daemon/`) plus a pure-QML applet (`plasmoid/`).
+The split is forced — MPRIS2 and audio playback cannot be driven from QML — and
+it keeps music playing across a plasmashell restart. `README.md` is the
+user-facing description.
 
 ## Commands
 
 ```sh
-# Tests — self-contained: they generate their own audio and stub the services,
-# so no music server is needed. They are plain scripts, not pytest.
 cd daemon
 python3 tests/test_player.py      # queue, shuffle, repeat, output switching, real mpv
 python3 tests/test_protocol.py    # control protocol, two services connected
 python3 tests/test_mpd.py         # MPD library + output against tests/fake_mpd.py
 
-# Run the daemon by hand (stop the service first if it is installed)
-systemctl --user stop streamplay
-PYTHONPATH=daemon python3 -m streamplay -vv       # -v info, -vv debug
-# --port --host --no-mpris --config are the other options
+systemctl --user stop streamplay                  # before running by hand
+PYTHONPATH=daemon python3 -m streamplay -vv       # also --port --host --no-mpris --config
 
-# Install / remove everything for the current user
-./install.sh
-./install.sh uninstall
-
-# Reinstall just the applet after editing QML
-kpackagetool6 --type Plasma/Applet --upgrade plasmoid/package
+./install.sh [uninstall]
+kpackagetool6 --type Plasma/Applet --upgrade plasmoid/package   # applet only
 ```
 
-There is no build step, no linter configured, and no test runner. To run a
-single check, comment out the others in the test file or add an early `return`.
+Tests are plain scripts, not pytest, and stub every service, so no music server
+is needed. To run a single check, `return` early. There is no build step, no
+linter and no test runner.
 
-## Verifying QML changes
+## Verifying QML
 
-**`qmllint` is useless here** — it silently skips the Plasma/Kirigami modules
-and reports nothing, including for types that do not exist. Plasma also logs
-QML errors to the journal rather than the terminal, and `console.log` from QML
-does not reach the terminal at all. The working loop is:
+`qmllint` silently skips the Plasma/Kirigami modules and reports nothing, even
+for types that do not exist. Plasma logs QML errors to the journal, and
+`console.log` never reaches the terminal. The working loop:
 
 ```sh
 kpackagetool6 --type Plasma/Applet --upgrade plasmoid/package
@@ -50,171 +38,174 @@ QT_QPA_PLATFORM=offscreen timeout 12 plasmoidviewer -a org.kde.plasma.streamplay
 journalctl --user --since "$STAMP" --no-pager | grep streamplay
 ```
 
-Empty output means it loaded cleanly. One bad type name kills the whole applet
-via a cascade of "Type X unavailable", so always check this after touching QML.
-`QT_QPA_PLATFORM=offscreen` keeps a window from appearing.
+Empty output means clean. One bad type name kills the whole applet through a
+cascade of "Type X unavailable", so run this after every QML change.
 
-**The loop above does not exercise the config pages** — they are only loaded
-when the settings dialog is opened, so they can be broken while the applet
-verifies clean. Two separate things to check by hand after touching them:
+Config pages load only when the settings dialog opens, so that loop misses
+them. Two things to check by hand:
 
-1. `ConfigCategory.source` in `contents/config/config.qml` is resolved relative
-   to **`contents/ui/`**, not to `contents/`. Our pages live in
-   `contents/ui/config/`, so the correct value is `config/ConfigGeneral.qml`.
-   Getting this wrong gives categories that appear in the dialog with empty
-   content and no error anywhere, because Plasma does not log the miss. Verify
-   with `test -f contents/ui/$source` for each entry.
-2. The page's own QML. Run `qml6` against the installed copy and read the
-   journal the same way; `i18n is not defined` is expected standalone and can be
-   ignored, anything about a type cannot. Beware that a failed `i18n` call also
-   produces *downstream* errors that look real: a property built from `i18n()`
-   ends up undefined, so every reader of it reports `TypeError: Cannot read
-   property 'x' of undefined`. To tell a genuine fault from this noise, copy the
-   page to a scratch directory, give the copy `i18n`/`i18nc`/`i18np` stubs that
-   return their text, and run that instead — it also lets a probe call the
-   page's own functions and print results with `console.warn`, which reaches
-   the journal.
+- `ConfigCategory.source` in `contents/config/config.qml` resolves against
+  `contents/ui/`, so our pages are `config/Foo.qml`. Getting it wrong gives
+  categories with empty content and no error anywhere. Verify with
+  `test -f contents/ui/$source`.
+- Run `qml6` on the page and read the journal. Copy it to a scratch directory
+  first and give the copy `i18n`/`i18nc`/`i18np` stubs: a failed `i18n` leaves
+  properties undefined, so every reader reports `TypeError: Cannot read
+  property 'x' of undefined` and looks like a real fault. The copy also lets a
+  probe call the page's own functions and print with `console.warn`, which does
+  reach the journal.
 
-Plasmashell caches an applet's package per instance, so after changing anything
-under `config/` the settings dialog has to be closed and reopened, and
-sometimes plasmashell restarted, before the change shows up.
+Plasmashell caches the package per applet instance, so after touching
+`config/` the settings dialog has to be reopened, sometimes plasmashell
+restarted.
 
-Plasma type locations are easy to get wrong. `SearchField`, `Heading`,
-`DescriptiveLabel`, `PlaceholderMessage` and `ListSectionHeader` live in
-`org.kde.plasma.extras`; `TabBar`, `ComboBox`, `ScrollView`, `ItemDelegate` and
-friends in `org.kde.plasma.components`. Check the module's `qmldir` before
-using a type that is not already used somewhere in this repo.
+`SearchField`, `Heading`, `DescriptiveLabel`, `PlaceholderMessage` and
+`ListSectionHeader` are in `org.kde.plasma.extras`; `TabBar`, `ComboBox`,
+`ScrollView`, `ItemDelegate` and friends in `org.kde.plasma.components`. Check
+a module's `qmldir` before using a type not already used here.
 
 ## Architecture
 
-### The central split: libraries, outputs, and one queue
+### Libraries, outputs, one queue
 
-The thing to understand before changing anything in `daemon/`:
+- `backends/base.py: Backend` — a library you browse, yielding a `StreamTarget`.
+- `backends/base.py: Sink` — somewhere audio comes out. Plays one target,
+  reports eof, knows nothing about queues.
+- `player.py: UnifiedPlayer` — owns the only queue, the play order, shuffle and
+  repeat, and drives the selected sink.
+- `hub.py: Hub` — holds every connected backend and sink and resolves for the
+  player: `stream_target(track)`, `scrobble(track, submission)`. The player
+  never imports a backend.
 
-- A **backend** (`backends/base.py: Backend`) is a library you can browse and
-  get a `StreamTarget` out of.
-- A **sink** (`backends/base.py: Sink`) is somewhere audio comes out. It plays
-  one target at a time and reports eof; it knows nothing about queues.
-- **`player.py: UnifiedPlayer`** owns the one and only queue, the play order,
-  shuffle and repeat, and drives whichever sink is selected.
-- **`hub.py: Hub`** holds every connected backend and sink, and acts as the
-  player's *resolver*: `stream_target(track)` and `scrobble(track, submission)`
-  dispatch to whichever service a track came from. The player never imports a
-  backend.
+Neither side owns the queue, which is what lets a Navidrome album and a Kodi
+album share one and play through either destination. Do not move queue state
+into a backend or a sink.
 
-Neither the library nor the output owns the queue, and that is deliberate — it
-is what lets a Navidrome album and a Kodi album sit in one queue and play
-through either destination. Do not move queue state into a backend or a sink.
+Kodi and MPD each appear twice, as an independent `*Backend` and `*Sink`. Both
+sinks are handed one track at a time and leave the service's own playlist
+alone. To add another: `BACKEND_TYPES` *and* `PLAYBACK_TYPES` in
+`backends/__init__.py`, a `create_sink` branch, and `Sink.source` — that last
+one is how `Hub._drop_source` tears an output down with its library without
+knowing any type names.
 
-Kodi and MPD each appear **twice**: a `*Backend` (library) and a `*Sink`
-(output), which are independent. Both sinks drive their service one track at a
-time and deliberately leave its own playlist alone, because our queue is the
-source of truth. Adding another such service means adding it to `BACKEND_TYPES`
-*and* `PLAYBACK_TYPES` in `backends/__init__.py`, teaching `create_sink` about
-it, and setting `Sink.source` on the sink -- that is what lets `Hub._drop_source`
-tear the output down with the library without knowing any type names.
+### Telling eof from a user's stop
 
-Kodi's sink uses `Player.Open` and `_expect_stop` to tell our own stop from the
-user stopping playback on the Kodi box; `Player.OnStop` with `end: true` is the
-end-of-track signal.
+Neither remote service reports this well.
 
-### MPD's two awkward corners
+- Kodi: `Player.OnStop` with `end: true` is eof; `KodiSink._expect_stop` marks
+  our own stops.
+- MPD: `status` says a bare `state: stop` either way. `MpdSink._near_end()`
+  judges by position, carried forward from the last reading by wall clock
+  (`_note_position`), because a short track can start *and* end between two
+  polls. `_changing` covers the inverse case: replacing the queue takes MPD
+  through `stop`.
 
-- **It cannot say why it stopped.** `status` reports a bare `state: stop`
-  whether the song ran out or somebody pressed stop in ncmpcpp. `MpdSink` guesses
-  from how far in the track was, carrying the last position forward by wall-clock
-  time (`_note_position` / `_near_end`) -- a short track can start *and* end
-  between two polls, so the raw last reading is not enough. `_changing` covers
-  the opposite case: replacing the queue takes MPD through `stop`, and that
-  momentary stop must not be read as the track ending.
-- **It serves no audio.** There is no URL to hand to mpv or Kodi, so
-  `MpdBackend._local` turns MPD's relative path into a `file://` URL using the
-  profile's `musicDirectory`. Without it, MPD tracks only play on MPD, and
-  `stream_target` returns a target with `native` but no `url`.
+### MPD specifics
 
-Two smaller things: `list ... group date` splits one album in two when its
-tracks disagree about the date, so `_album_list` folds the duplicates back
-together; and `list`/`find` match case-sensitively while `search` does not,
-which is why `MpdBackend.search` filters artists and albums in Python instead
-of asking MPD to.
+- It serves no audio, so `MpdBackend._file_url()` builds a `file://` URL from
+  the profile's `musicDirectory`. Without it `stream_target` returns `native`
+  but no `url`, and MPD tracks play only on MPD.
+- No ids: a tag value is the id. Track = path, artist = name, album =
+  `albumartist + "\x1f" + album`.
+- `list ... group date` splits an album whose tracks disagree about the date;
+  `_album_list` folds them back together.
+- `list`/`find` match case-sensitively and `search` does not, so
+  `MpdBackend.search` filters artists and albums in Python.
 
 ### Sources and ids
 
-Every `Track`/`Album`/`Artist` carries a `source`, which is the profile id it
-came from. **Library ids are only unique within one service**, so any call that
-takes an id needs a source too. MPD has no ids at all, so a tag value *is* the
-id there: a track's id is its path inside the music directory, an artist's is
-their name, and an album's is `albumartist + "\x1f" + album`. `library.*` methods without a `source` fan out
-across all connected services and merge; with one, they target it. `Backend.tag()`
-stamps the source on an item.
+Every `Track`, `Album`, `Artist` and playlist carries `source`, the profile id
+it came from. Library ids are unique only within one service, so any call
+taking an id needs a source too. `library.*` without a `source` fans out across
+the connected services and merges; with one, it targets that service.
 
-### Threading and event flow
+### Threads and events
 
-- Everything in the daemon runs on one asyncio loop, except MPRIS.
-- **MPRIS runs in its own GLib thread** (`mpris.py`) because dbus-python needs a
-  GLib main loop. Crossing in: `MprisService.dispatch()` →
-  `loop.call_soon_threadsafe`. Crossing out: `push_state`/`push_seeked` →
-  `GLib.idle_add`. Never touch the D-Bus object from the asyncio loop or the
-  player from the GLib thread.
-- **mpv events must not be handled inside the socket reader.** `mpvproc.py`
-  puts them on an `asyncio.Queue` consumed by a separate task. Handling them
-  inline deadlocks: an end-of-file handler issues a new mpv command and then
-  waits for a reply that only the blocked reader could deliver. This was a real
-  bug; keep the queue.
-- **mpv dying must be noticed at once.** `Mpv._drop_ipc()` clears the
-  connection the moment the socket closes, so `alive` goes false and further
-  commands are refused immediately. Without it a command is written into a dead
-  socket and waits out its ten-second timeout -- and systemd kills everything in
-  the unit's control group together, so on shutdown mpv is always already gone.
-  That cost ten seconds and a SIGKILL on every restart, which meant the daemon
-  never ran its cleanup. `tests/test_player.py` guards it.
-- mpv reports the play position many times a second. `UnifiedPlayer._on_sink_changed`
-  diffs the state and emits a small rate-limited `position` event when only
-  progress changed, and a full `state` push otherwise. Use `_changed()` for
-  genuine state transitions, not for progress.
+- One asyncio loop for everything except MPRIS.
+- MPRIS has its own GLib thread (`mpris.py`) because dbus-python needs a GLib
+  main loop. In: `MprisService.dispatch()` → `loop.call_soon_threadsafe`. Out:
+  `push_state`/`push_seeked` → `GLib.idle_add`. Never touch the D-Bus object
+  from asyncio or the player from GLib.
+- mpv events go on an `asyncio.Queue` for a separate task and are never handled
+  inside the socket reader: an eof handler issues a new command and would wait
+  for a reply only the blocked reader could deliver. Real bug; keep the queue.
+- `Mpv._drop_ipc()` writes the connection off the moment the socket closes.
+  Otherwise a command goes into a dead socket and waits out its ten-second
+  timeout, and systemd kills mpv and the daemon together so shutdown always
+  hits this — it cost a SIGKILL on every restart. `tests/test_player.py` guards
+  it.
+- mpv reports position many times a second. `UnifiedPlayer._on_sink_changed`
+  emits a rate-limited `position` event for progress and a full `state` push
+  otherwise; `_changed()` is for genuine transitions.
 
 ### Applet ↔ daemon
 
-One WebSocket on `127.0.0.1:8760` carries JSON-RPC-ish calls
-(`{"id", "method", "params"}` → `{"id", "ok", "result"|"error"}`) plus pushed
-`state`, `position`, `queue`, `sources`, `profiles` and `seeked` events. The
-same port serves cover art over plain HTTP at `/cover?src=…&id=…&size=…` via
-`websockets`' `process_request` hook, so QML's `Image` can load artwork and the
-applet never holds any credentials.
+One WebSocket on `127.0.0.1:8760`: `{"id", "method", "params"}` →
+`{"id", "ok", "result"|"error"}`, plus pushed `state`, `position`, `queue`,
+`sources`, `profiles` and `seeked`. The same port serves cover art over plain
+HTTP at `/cover?src=…&id=…&size=…` through `websockets`' `process_request`
+hook, so QML's `Image` can load artwork and the applet holds no credentials.
 
-Cover art normally comes from `Backend.cover_request()`, an HTTP URL the
-`CoverCache` fetches in a thread. MPD has no such URL -- it sends the image down
-the control connection in chunks -- so it implements `Backend.cover_bytes()`
-instead, which the cache tries first and runs on the event loop.
+Cover art is normally `Backend.cover_request()`, an HTTP URL `CoverCache`
+fetches in a thread. MPD sends images down the control connection instead, so
+it implements `Backend.cover_bytes()`, which the cache tries first and runs on
+the loop.
 
-`Client.qml` is the whole transport. Two things there matter:
+`Client.qml` is the whole transport.
 
 - `_adopt()` compares before assigning `sources`/`outputs`. The daemon repeats
-  those lists in every state push, and a plain assignment to a `property var`
-  fires a change signal every time, which made `LibraryPane` reload the library
-  several times a second. Keep the comparison.
-- `displayPosition` is interpolated by a timer between the daemon's ~1 Hz
-  updates, and `scrubbing` suppresses that while the user drags the seek bar.
+  them in every state push, and assigning to a `property var` fires a change
+  signal every time, which made `LibraryPane` reload several times a second.
+  Keep the comparison.
+- `displayPosition` interpolates between the daemon's ~1 Hz updates;
+  `scrubbing` suppresses it while the seek bar is dragged.
 
-### QML scoping
-
-The panes reference `root.client` and `root.track` across file boundaries. That
-works because QML resolves ids through the *creation context*, and every pane is
-instantiated from `main.qml`. Config pages are a separate QML context, so
-`ConfigServers.qml` creates its **own** `Client` (`import ".." as Sp`) and reads
-the daemon host/port from plain `cfg_*` properties that Plasma fills in.
+The panes reference `root.client` and `root.track` across files because QML
+resolves ids through the *creation context* and every pane is instantiated from
+`main.qml`. Config pages are a separate context, so `ConfigServers.qml` creates
+its own `Client` (`import ".." as Sp`) and reads the daemon host and port from
+`cfg_*` properties Plasma fills in.
 
 ## Configuration and secrets
 
-`~/.config/streamplay/config.json` holds all profiles and settings, written
-0600 because it contains backend passwords in plain text. Two rules:
+`~/.config/streamplay/config.json`, mode 0600 because it holds backend
+passwords in plain text.
 
 - `Config.upsert()` treats a missing or empty `password` as "keep the stored
   one", so the applet can save an edited profile without ever holding the
   secret.
-- `Profile.redacted()` is what goes over the wire — it strips `password` and
-  replaces it with a `hasPassword` boolean. Never send a raw profile to the
-  applet.
+- `Profile.redacted()` strips `password` for a `hasPassword` boolean. Never
+  send a raw profile to the applet.
+- `Hub._schedule_settings_flush` delays writing volume, shuffle and repeat so a
+  volume drag does not thrash the file.
 
-Playback settings (volume, shuffle, repeat) are written back on a delay by
-`Hub._schedule_settings_flush` so a volume drag does not thrash the file.
+## Comments
+
+Comments are scarce. The default is **no comment**.
+
+Comment only when the code itself cannot reasonably express the information.
+
+- Comment **why**, not what the code does.
+- Prefer a better name, structure, or API over a comment.
+- Keep comments to **one short sentence**, normally one line.
+- When a comment spans multiple lines, use **one complete sentence per line**. Do not wrap a single sentence across multiple lines merely to fit a line-length limit.
+- A comment should convey one fact only: an invariant, non-obvious constraint, algorithmic reason, or important external reference.
+- Do not explain the implementation, summarize a function, or provide a narrative of its control flow.
+- Match the comment density and brevity of the surrounding code. **Never increase comment density.**
+- Do not add documentation-style prose, introductions, conclusions, or motivational/explanatory language.
+- Do not use rhetorical contrasts such as `"X" -> "Y"`, `"instead of X"`, or `"from X to Y"` to explain an optimization.
+- Do not add comments describing the change itself ("now handles X", "renamed from Y"); that belongs in the commit message.
+- Do not add banner or section-header comments.
+- Do not add a comment if deleting it would leave the code equally correct and understandable.
+- A comment that restates the code is worse than no comment:
+  ```cpp
+  vec.push_back(x); // BAD: "put x into the vector"
+  ```
+
+**Hard limit:** Do not write multi-line comments unless the user explicitly asks for documentation or the comment is required to document a non-obvious invariant that cannot be stated briefly.
+
+Before adding a comment, ask:
+1. Is this information necessary?
+2. Is it already apparent from the code or names?
+3. Can it be expressed in one short sentence?
+If the answer to 1 or 3 is no, do not add the comment.

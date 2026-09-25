@@ -1,8 +1,4 @@
 """Thin asyncio wrapper around an ``mpv --idle`` process driven over JSON IPC.
-
-mpv does the hard parts of audio playback -- network buffering, seeking inside
-a streamed file, the codec zoo, ReplayGain -- so the daemon only has to feed it
-URLs and react to its property changes.
 """
 
 from __future__ import annotations
@@ -40,10 +36,7 @@ class MpvError(RuntimeError):
 
 
 class Mpv:
-    """One long-lived mpv process.
-
-    ``on_event(name, payload)`` and ``on_property(name, value)`` are awaited for
-    every IPC event; they run on the same loop as everything else.
+    """One long-lived mpv process; its callbacks run on the same loop as everything else.
     """
 
     def __init__(
@@ -61,19 +54,14 @@ class Mpv:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._reader_task: asyncio.Task | None = None
-        # Handlers may issue new mpv commands, so they must not run inside the
-        # socket reader -- that would wait for a reply the reader itself has to
-        # deliver. Events are handed to a consumer task instead, which keeps
-        # them ordered without the re-entrancy.
+        # Handlers issue mpv commands, so running them in the reader would deadlock.
         self._events: asyncio.Queue[tuple[str, str, object]] = asyncio.Queue()
         self._event_task: asyncio.Task | None = None
         self._pending: dict[int, asyncio.Future] = {}
         self._next_id = 1
-        self._observe_ids: dict[int, str] = {}
         self._starting: asyncio.Lock = asyncio.Lock()
         self._closed = False
 
-    # ------------------------------------------------------------ lifecycle
 
     @property
     def alive(self) -> bool:
@@ -105,8 +93,7 @@ class Mpv:
                 "--msg-level=all=warn",
                 "--replaygain=track",
                 "--audio-client-name=streamplay",
-                # Give network streams a healthy buffer so a hiccup on the way
-                # from the music server does not turn into an audible dropout.
+                # Buffer network streams so a hiccup is not an audible dropout.
                 "--cache=yes",
                 "--demuxer-max-bytes=64MiB",
                 "--demuxer-readahead-secs=30",
@@ -145,19 +132,13 @@ class Mpv:
                 self._event_loop(), name="mpv-events"
             )
             for index, prop in enumerate(OBSERVED, start=1):
-                self._observe_ids[index] = prop
                 await self.command("observe_property", index, prop)
 
     def _drop_ipc(self) -> None:
         """Forget the IPC connection and fail whatever was waiting on it.
 
-        Called when the socket dies under us as well as from an orderly
-        teardown. Without it :attr:`alive` stays true -- the writer is still an
-        object, and the child has not necessarily been reaped yet -- so the
-        next command is written into the void and then waits the full timeout
-        for a reply that can never come. That is what made shutting down take
-        ten seconds whenever mpv was killed alongside the daemon, which is what
-        systemd does to everything in the unit's control group.
+        Otherwise :attr:`alive` stays true and the next command waits out its
+        full timeout, which cost ten seconds and a SIGKILL on every restart.
         """
         writer, self._writer, self._reader = self._writer, None, None
         if writer is not None:
@@ -175,9 +156,7 @@ class Mpv:
                  if t is not None and t is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
-        # Let them finish before going on. Their own cleanup clears the
-        # connection, and start() is about to install a new one -- a straggler
-        # would otherwise write off a socket that had already been replaced.
+        # Await them: their cleanup clears the connection start() is about to replace.
         for task in tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -196,7 +175,6 @@ class Mpv:
         self._closed = True
         await self._teardown()
 
-    # ----------------------------------------------------------------- ipc
 
     async def _read_loop(self) -> None:
         assert self._reader is not None
@@ -213,14 +191,12 @@ class Mpv:
         except asyncio.CancelledError:
             raise
         except (ConnectionError, OSError) as exc:
-            # mpv closing the socket is how it reports its own exit, including
-            # when it is killed alongside us. Not worth a traceback.
+            # mpv closing the socket is how it reports its own exit.
             log.debug("mpv IPC read ended: %s", exc)
         except Exception:
             log.exception("mpv reader failed")
         finally:
-            # Do this before announcing the loss: the handler may well try to
-            # talk to mpv, and it should be told at once that it cannot.
+            # Before announcing the loss, since the handler may try to talk to mpv.
             self._drop_ipc()
             if not self._closed:
                 log.warning("mpv IPC connection lost")
@@ -280,7 +256,6 @@ class Mpv:
             self._pending.pop(request_id, None)
             raise MpvError(f"mpv command timed out: {args[0]}") from exc
 
-    # ------------------------------------------------------------ shortcuts
 
     async def set_property(self, name: str, value: Any) -> None:
         await self.command("set_property", name, value)
@@ -290,9 +265,6 @@ class Mpv:
 
     async def loadfile(self, url: str, mode: str = "replace") -> None:
         await self.command("loadfile", url, mode, timeout=30.0)
-
-    async def playlist_clear(self) -> None:
-        await self.command("playlist-clear")
 
     async def stop(self) -> None:
         await self.command("stop")

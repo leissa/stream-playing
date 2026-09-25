@@ -82,13 +82,7 @@ async def run(args: argparse.Namespace) -> int:
 
 
 class _AbortedRequestFilter(logging.Filter):
-    """Drop the tracebacks produced by half-finished HTTP requests.
-
-    Cover art is served over the same port as the WebSocket, and QML cancels an
-    image load whenever a list delegate is recycled. websockets then trips an
-    assertion trying to finish a response nobody is reading any more, and logs
-    a full traceback at ERROR. It is noise -- the request was simply abandoned
-    -- so it is reduced to a debug line rather than filling the journal.
+    """Drop the tracebacks from HTTP requests QML abandoned mid-flight.
     """
 
     MESSAGES = ("opening handshake failed", "unexpected internal error")

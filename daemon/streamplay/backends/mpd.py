@@ -1,15 +1,9 @@
 """MPD over its own text protocol.
 
-Like Kodi, MPD turns up twice: :class:`MpdBackend` is a library you browse and
-:class:`MpdSink` is somewhere audio comes out. The two are independent, so an
-MPD library can play on this computer's speakers and a Navidrome album can be
-handed to MPD -- the daemon owns the queue either way.
-
-Two things about MPD shape the code below. It has **no ids**: a tag value *is*
-the identifier, so an album is addressed by its artist and title and a track by
-its path inside the music directory. And it does not serve audio over its
-control port, so playing an MPD track anywhere other than on MPD itself needs
-the files to be reachable as ordinary paths -- see :meth:`MpdBackend._local`.
+Like Kodi, MPD turns up twice: a library (:class:`MpdBackend`) and an output
+(:class:`MpdSink`), independent of each other because the daemon owns the queue.
+MPD has no ids, so a tag value is the id, and it serves no audio of its own --
+see :meth:`MpdBackend._file_url`.
 """
 
 from __future__ import annotations
@@ -25,22 +19,17 @@ from .base import Backend, BackendError, Sink, StreamTarget
 
 log = logging.getLogger(__name__)
 
-#: Joins an album's artist and title into one id. MPD has nothing better to
-#: offer, and a control character is the one thing that cannot occur in a tag.
+#: Joins an album's artist and title into one id; no tag can contain it.
 ID_SEP = "\x1f"
 
 CONNECT_TIMEOUT = 8.0
 COMMAND_TIMEOUT = 30.0
 
-#: How close to the end of a track a stop has to happen to count as the track
-#: ending rather than somebody pressing stop in another client. The position is
-#: carried forward from the last reading, so this only has to cover clock drift
-#: and not the gap between two polls.
+#: How close to the end a stop must be to count as eof rather than a user's stop.
 EOF_SLACK = 1.0
 
 
 def _quote(value: str) -> str:
-    """Wrap one protocol argument in quotes, escaping what needs it."""
     escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
@@ -94,12 +83,9 @@ class MpdCommandError(BackendError):
 class MpdConnection:
     """One connection speaking the MPD text protocol.
 
-    MPD replies are ``key: value`` lines closed by ``OK`` or ``ACK``, and the
-    order of those lines carries meaning -- a song is one run of them -- so the
-    reply is kept as a list of pairs rather than collapsed into a dict.
-
-    Commands are serialised by a lock: MPD has no request ids, so two callers
-    writing at once would read each other's answers.
+    Replies stay a list of pairs because their order carries meaning: a song is
+    one run of keys.
+    A lock serialises commands, since MPD has no request ids to match answers by.
     """
 
     def __init__(self, host: str, port: int, password: str = "",
@@ -118,7 +104,6 @@ class MpdConnection:
     def connected(self) -> bool:
         return self._writer is not None and not self._writer.is_closing()
 
-    # ------------------------------------------------------------ lifecycle
 
     async def _open(self) -> None:
         try:
@@ -162,55 +147,43 @@ class MpdConnection:
         except (OSError, asyncio.CancelledError):
             pass
 
-    # -------------------------------------------------------------- talking
 
     async def command(self, *args: Any) -> list[tuple[str, str]]:
-        """Run one command, reconnecting once if the socket has gone."""
         async with self._lock:
             if not self.connected:
                 await self._open()
             try:
-                return await self._exchange(*args)
+                return (await self._exchange(*args))[0]
             except MpdCommandError:
                 raise
             except BackendError:
-                # A dropped socket looks exactly like this. Try once more on a
-                # fresh connection before telling the user anything is wrong.
+                # A dropped socket looks exactly like this.
                 await self.close()
                 await self._open()
-                return await self._exchange(*args)
+                return (await self._exchange(*args))[0]
 
     async def binary(self, name: str, uri: str) -> bytes | None:
-        """Read a chunked binary reply (``albumart`` / ``readpicture``).
-
-        MPD only hands over ``binarylimit`` bytes at a time, so the command is
-        repeated at increasing offsets until the announced size is complete.
-        """
+        """Read a binary reply, which MPD hands over ``binarylimit`` bytes at a time."""
         async with self._lock:
             if not self.connected:
                 await self._open()
             chunks: list[bytes] = []
-            total = 0
+            offset = total = 0
             while True:
-                pairs, blob = await self._exchange_binary(name, uri, len(b"".join(chunks)))
-                if blob is None:
-                    return None
-                chunks.append(blob)
-                for key, value in pairs:
-                    if key == "size":
-                        total = _int(value) or 0
-                got = sum(len(c) for c in chunks)
-                if not blob or total == 0 or got >= total:
+                pairs, blob = await self._exchange(name, uri, offset)
+                if not blob:
                     break
-            data = b"".join(chunks)
-            return data or None
+                chunks.append(blob)
+                offset += len(blob)
+                total = next((_int(v) or 0 for k, v in pairs if k == "size"),
+                             total)
+                if offset >= total:
+                    break
+            return b"".join(chunks) or None
 
-    async def _exchange(self, *args: Any) -> list[tuple[str, str]]:
-        pairs, _ = await self._exchange_binary(*args)
-        return pairs
-
-    async def _exchange_binary(
+    async def _exchange(
             self, *args: Any) -> tuple[list[tuple[str, str]], bytes | None]:
+        """Send one command; return its key/value pairs and any binary blob."""
         assert self._reader is not None and self._writer is not None
         line = " ".join([str(args[0])] + [_quote(a) for a in args[1:]])
         try:
@@ -255,11 +228,7 @@ class MpdConnection:
 
 
 def _runs(pairs: Sequence[tuple[str, str]], start: str) -> Iterable[dict[str, str]]:
-    """Split a flat reply into one dict per item.
-
-    A new item begins at every ``start`` key -- ``file`` for songs, ``playlist``
-    for stored playlists -- because that is the only structure MPD gives.
-    """
+    """Split a flat reply into one dict per item, each starting at a ``start`` key."""
     current: dict[str, str] | None = None
     for key, value in pairs:
         if key == start:
@@ -276,8 +245,7 @@ def _grouped(pairs: Sequence[tuple[str, str]],
              wanted: str) -> Iterable[tuple[str, dict[str, str]]]:
     """Walk a ``list <tag> group <tag>…`` reply.
 
-    MPD prints each group's value just before the run it applies to, so the
-    most recently seen value of every other key is the group this item is in.
+    MPD prints a group's value just before the run it applies to.
     """
     groups: dict[str, str] = {}
     for key, value in pairs:
@@ -296,8 +264,7 @@ class MpdBackend(Backend):
         self.host = str(profile.get("host") or "127.0.0.1").strip()
         self.port = int(profile.get("port") or 6600)
         self.password = str(profile.get("password") or "")
-        #: Where MPD's files live as far as *this* machine is concerned. Only
-        #: needed to play MPD tracks somewhere other than on MPD itself.
+        #: Where MPD's files live as far as *this* machine is concerned.
         self.music_directory = str(profile.get("musicDirectory") or "").strip()
 
         self.client = MpdConnection(self.host, self.port, self.password,
@@ -306,7 +273,6 @@ class MpdBackend(Backend):
     async def call(self, *args: Any) -> list[tuple[str, str]]:
         return await self.client.command(*args)
 
-    # ------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
         await self.call("ping")
@@ -314,12 +280,7 @@ class MpdBackend(Backend):
             await self._discover_music_directory()
 
     async def _discover_music_directory(self) -> None:
-        """Ask MPD where its files are, which only local clients may do.
-
-        Over a unix socket this saves the user from configuring the path twice;
-        over TCP it is refused and the profile has to say, so the failure is
-        expected and not worth reporting.
-        """
+        """Ask MPD where its files are, which only socket clients may do."""
         try:
             pairs = await self.call("config")
         except BackendError as exc:
@@ -333,14 +294,12 @@ class MpdBackend(Backend):
     async def close(self) -> None:
         await self.client.close()
 
-    # -------------------------------------------------------------- mapping
 
     def _track(self, song: dict[str, str]) -> Track:
         uri = song.get("file", "")
+        album_artist = song.get("AlbumArtist") or song.get("Artist") or ""
         return Track(
-            # The path is the only stable handle MPD has, so it doubles as the
-            # id -- which means a track survives the round trip through the
-            # applet without any per-backend rehydration.
+            # The path is the only stable handle MPD has.
             id=uri,
             title=song.get("Title") or Path(uri).stem or "Unknown",
             artist=song.get("Artist") or song.get("AlbumArtist") or "",
@@ -348,9 +307,8 @@ class MpdBackend(Backend):
             duration=float(song.get("duration") or song.get("Time") or 0),
             backend=self.kind,
             source=self.source,
-            artist_id=song.get("AlbumArtist") or song.get("Artist") or None,
-            album_id=self._album_id(song.get("AlbumArtist") or song.get("Artist") or "",
-                                   song.get("Album") or "") or None,
+            artist_id=album_artist or None,
+            album_id=self._album_id(album_artist, song.get("Album") or "") or None,
             track_no=_int(song.get("Track")),
             disc_no=_int(song.get("Disc")),
             year=_year(song.get("Date") or song.get("OriginalDate")),
@@ -369,31 +327,23 @@ class MpdBackend(Backend):
         return artist, album
 
     def _album(self, name: str, groups: dict[str, str]) -> Album:
-        artist = groups.get("albumartist") or groups.get("artist") or ""
+        artist = groups.get("albumartist") or ""
         return Album(
             id=self._album_id(artist, name),
-            name=name or "Unknown",
+            name=name,
             artist=artist,
             source=self.source,
             artist_id=artist or None,
             year=_year(groups.get("date")),
-            genre=groups.get("genre") or None,
         )
 
-    # -------------------------------------------------------------- browsing
 
     async def _album_list(self, *clauses: str) -> list[Album]:
         """Every album matching the clauses, with its artist and year.
 
-        One command does the whole job. Track counts are left at zero on
-        purpose: ``count`` accepts a single ``group``, so there is no way to
-        ask for them per artist *and* album, and a count keyed on the title
-        alone would silently add up two different records with the same name.
-
-        Grouping by date is what gets a year at all, and it is also why the
-        results have to be folded together afterwards: one album whose tracks
-        carry ``1998`` and ``1998-04-02`` is two groups to MPD, and would
-        otherwise be listed twice.
+        Track counts stay zero because ``count`` takes only one ``group``.
+        Grouping by date is what yields a year, and also why duplicates have to
+        be folded: tracks tagged ``1998`` and ``1998-04-02`` are two groups.
         """
         pairs = await self.call(
             "list", "album", _filter(*clauses), "group", "albumartist",
@@ -407,34 +357,35 @@ class MpdBackend(Backend):
             key = (album.artist.casefold(), album.name.casefold())
             first = seen.get(key)
             if first is None:
-                seen[key] = self.tag(album)
+                seen[key] = album
             elif album.year is not None:
-                # Tracks disagreeing about the date usually means a reissue
-                # tag on some of them, so the earliest is the release.
+                # A disagreeing date is usually a reissue tag, so take the earliest.
                 first.year = (album.year if first.year is None
                               else min(first.year, album.year))
         return list(seen.values())
 
-    async def artists(self) -> list[Artist]:
-        # Asking for the albums rather than for ``list albumartist`` gets the
-        # album count in the same breath, for no extra round trip.
-        pairs = await self.call("list", "album", "group", "albumartist")
+    def _artists_of(self, albums: list[Album]) -> list[Artist]:
+        """The album artists in a list of albums, with how many each has.
+
+        MPD's ``list albumartist`` gives the names but not the counts.
+        """
         counts: dict[str, int] = {}
-        for _, groups in _grouped(pairs, "Album"):
-            name = groups.get("albumartist") or ""
-            counts[name] = counts.get(name, 0) + 1
-        return [self.tag(Artist(id=name, name=name or "Unknown",
-                                source=self.source, album_count=count))
-                for name, count in counts.items() if name]
+        for album in albums:
+            if album.artist:
+                counts[album.artist] = counts.get(album.artist, 0) + 1
+        return [Artist(id=name, name=name, source=self.source,
+                       album_count=count)
+                for name, count in counts.items()]
+
+    async def artists(self) -> list[Artist]:
+        return self._artists_of(await self._album_list())
 
     async def artist_albums(self, artist_id: str) -> list[Album]:
         return await self._album_list(_eq("AlbumArtist", artist_id))
 
     async def albums(self, sort: str = "alphabetical", offset: int = 0,
                      limit: int = 100) -> list[Album]:
-        # MPD cannot sort or page a ``list``, so the whole set comes back and
-        # the caller's shared sort decides the order. The library lives in
-        # MPD's memory, so this stays cheap.
+        # MPD cannot sort or page a ``list``, and its database is in memory anyway.
         albums = await self._album_list()
         albums.sort(key=lambda a: (a.artist.lower(), a.year or 0, a.name.lower()))
         return albums[offset:offset + limit] if limit else albums[offset:]
@@ -445,44 +396,39 @@ class MpdBackend(Backend):
         if artist:
             clauses.append(_eq("AlbumArtist", artist))
         pairs = await self.call("find", _filter(*clauses))
-        tracks = [self.tag(self._track(s)) for s in _runs(pairs, "file")]
+        tracks = [self._track(s) for s in _runs(pairs, "file")]
         tracks.sort(key=lambda t: (t.disc_no or 0, t.track_no or 0, t.title.lower()))
         return tracks
 
     async def search(self, query: str, limit: int = 40) -> dict[str, list]:
         """Find artists, albums and tracks whose names contain the query.
 
-        Artists and albums are filtered here rather than by MPD. Its ``list``
-        command matches case-sensitively, which is no use to somebody typing
-        into a search box, and the full artist and album lists are one cheap
-        command each -- MPD keeps the database in memory.
+        Artists and albums are sieved here because ``list`` matches case-sensitively.
         """
         needle = query.casefold()
-        artists, albums, songs = await asyncio.gather(
-            self.artists(),
+        albums, songs = await asyncio.gather(
             self._album_list(),
-            # ``search``, unlike ``list`` and ``find``, ignores case, so the
-            # track arm can be left to MPD and windowed to a sane size.
+            # ``search``, unlike ``list`` and ``find``, ignores case.
             self.call("search", _contains("Title", query),
                       "window", f"0:{max(1, limit)}"),
             return_exceptions=True,
         )
 
         def ok(result: Any) -> list:
-            """One arm failing should not empty the other two."""
+            """One arm failing should not empty the other."""
             if isinstance(result, Exception):
                 log.debug("%s search: %s", self.name, result)
                 return []
             return result
 
+        albums = ok(albums)
         return {
-            "artists": [a for a in ok(artists)
+            "artists": [a for a in self._artists_of(albums)
                         if needle in a.name.casefold()][:limit],
-            "albums": [a for a in ok(albums)
+            "albums": [a for a in albums
                        if needle in a.name.casefold()
                        or needle in a.artist.casefold()][:limit],
-            "tracks": [self.tag(self._track(s))
-                       for s in _runs(ok(songs), "file")],
+            "tracks": [self._track(s) for s in _runs(ok(songs), "file")],
         }
 
     async def genres(self) -> list[str]:
@@ -494,29 +440,23 @@ class MpdBackend(Backend):
                            limit: int = 100) -> list[Album]:
         albums = await self._album_list(_eq("Genre", genre))
         for album in albums:
-            # Grouping by genre as well would split an album whose tracks are
-            # tagged differently, so it is stamped on from the filter instead.
+            # Grouping by genre would split an album tagged inconsistently.
             album.genre = genre
         return albums[offset:offset + limit] if limit else albums[offset:]
 
     async def playlists(self) -> list[dict[str, Any]]:
         pairs = await self.call("listplaylists")
-        return [{"id": entry["playlist"], "name": entry["playlist"]}
-                for entry in _runs(pairs, "playlist") if entry.get("playlist")]
+        return [{"id": name, "source": self.source, "name": name}
+                for name in (e.get("playlist") for e in _runs(pairs, "playlist"))
+                if name]
 
     async def playlist_tracks(self, playlist_id: str) -> list[Track]:
         pairs = await self.call("listplaylistinfo", playlist_id)
-        return [self.tag(self._track(s)) for s in _runs(pairs, "file")]
+        return [self._track(s) for s in _runs(pairs, "file")]
 
-    # ----------------------------------------------------------------- media
 
-    def _local(self, uri: str) -> str | None:
-        """The track as a URL any player can open, if there is one.
-
-        MPD serves no audio over its control port, so this only works when the
-        files are also reachable from this machine -- the usual case for an MPD
-        running on the same box, and for a remote one whose library is mounted.
-        """
+    def _file_url(self, uri: str) -> str | None:
+        """The track as a URL any player can open, if the files are reachable here."""
         if uri.startswith(("http://", "https://")):
             return uri            # a radio stream sitting in MPD's database
         if not self.music_directory:
@@ -531,18 +471,14 @@ class MpdBackend(Backend):
         uri = track.extra.get("uri") or track.id
         if not uri:
             raise BackendError(f"{self.name}: {track.title} has no path")
-        url = self._local(uri)
-        if url is None and not self.music_directory:
-            log.debug("%s: %s can only play on MPD itself "
-                      "(no music directory configured)", self.name, uri)
-        return StreamTarget(url=url, native={"uri": uri}, source=self.source)
+        return StreamTarget(url=self._file_url(uri), native={"uri": uri},
+                            source=self.source)
 
     async def cover_bytes(self, cover_id: str, size: int) -> bytes | None:
-        """Cover art comes down the control connection, not over HTTP.
+        """Cover art, which MPD sends down the control connection rather than over HTTP.
 
-        ``albumart`` is the folder image and ``readpicture`` the one embedded
-        in the file; different libraries have one or the other, so both are
-        tried. MPD ignores ``size`` -- it hands over whatever it has.
+        ``albumart`` is the folder image and ``readpicture`` the embedded one.
+        ``size`` is ignored: MPD hands over whatever it has.
         """
         if not cover_id:
             return None
@@ -560,9 +496,7 @@ class MpdBackend(Backend):
 class MpdSink(Sink):
     """Plays one track at a time on an MPD instance.
 
-    MPD has a perfectly good queue of its own, and it is deliberately not used:
-    the daemon's queue is the single source of truth, so MPD is handed one song
-    and told to stop at the end of it.
+    MPD's own queue is deliberately unused; ours is the source of truth.
     """
 
     POLL_INTERVAL = 1.0
@@ -573,18 +507,14 @@ class MpdSink(Sink):
         self.source = backend.source
         self.id = f"mpd:{backend.source}"
         self.name = backend.name
-        #: A second connection, because ``idle`` blocks until something happens
-        #: and would hold up every command issued in the meantime.
+        #: A second connection, because ``idle`` blocks until something happens.
         self.watcher = MpdConnection(
             backend.host, backend.port, backend.password,
             backend.unix_socket, backend.name)
-        #: Set while a play/stop is halfway through. MPD passes through
-        #: ``stop`` on the way to the next song, and that momentary stop must
-        #: not be mistaken for the track having ended.
+        #: Set while a play/stop is halfway through, when MPD passes through ``stop``.
         self._changing = False
         self._has_mixer = True
-        #: When :attr:`state.position` was last read, so it can be carried
-        #: forward -- see :meth:`_near_end`.
+        #: When :attr:`state.position` was last read; see :meth:`_near_end`.
         self._position_at = 0.0
         self._idle_task: asyncio.Task | None = None
         self._poll_task: asyncio.Task | None = None
@@ -608,15 +538,9 @@ class MpdSink(Sink):
         self._idle_task = self._poll_task = None
         await self.watcher.close()
 
-    # ------------------------------------------------------------ live feed
 
     async def _idle_loop(self) -> None:
-        """Follow MPD's own change notifications.
-
-        ``idle`` answers the moment the player, the mixer or the options
-        change, which is what makes another client's play/pause show up here
-        straight away instead of at the next poll.
-        """
+        """Follow MPD's change notifications, so another client shows up at once."""
         backoff = 1.0
         while True:
             try:
@@ -652,10 +576,7 @@ class MpdSink(Sink):
         if self._changing:
             return
 
-        # Both loops can be in here at once. Reading the old state only after
-        # the round trip -- and the connection serialises those -- means the
-        # second one sees what the first concluded, so an ended track is
-        # reported once rather than twice.
+        # Both loops can be here at once, and the connection serialises the reads.
         was, near_end = self.state.status, self._near_end()
         state = status.get("state", "stop")
         self.state.status = {"play": "playing", "pause": "paused"}.get(
@@ -664,9 +585,7 @@ class MpdSink(Sink):
         self.state.duration = float(status.get("duration") or self.state.duration)
         self.state.error = status.get("error") or None
 
-        # MPD reports no volume at all, or -1, when its output has no mixer --
-        # a null or pipe output, or ALSA without a control. Then the level is
-        # not ours to set and pretending otherwise would be a lie.
+        # No volume, or -1, means MPD's output has no mixer and the level is not ours.
         volume = _int(status.get("volume"))
         self._has_mixer = volume is not None and volume >= 0
         if self._has_mixer:
@@ -675,16 +594,13 @@ class MpdSink(Sink):
         if self.state.status == "stopped" and was == "playing":
             self._note_position(0.0)
             if self.state.error:
-                # MPD could not fetch or decode it. Reported separately from
-                # eof so the player steps over the track and says why, rather
-                # than counting it as one that played.
+                # Separate from eof so the player steps over the track and says why.
                 await self._ended("error")
                 return
             if near_end:
                 await self._ended("eof")
                 return
-            # Otherwise somebody stopped MPD from another client. Respect it
-            # rather than treating it as the track finishing and rolling on.
+            # Otherwise somebody stopped MPD from another client.
         self._changed()
 
     def _note_position(self, position: float) -> None:
@@ -695,23 +611,18 @@ class MpdSink(Sink):
     def _near_end(self) -> bool:
         """Was the track about to finish when it stopped?
 
-        MPD reports a plain ``state: stop`` whether the song ran out or
-        somebody pressed stop, and unlike Kodi it does not say which, so the
-        position is the only evidence there is. The last reading may be up to
-        a poll old and a short track can start and end inside that gap, so it
-        is carried forward by however long ago it was taken.
+        MPD says a bare ``state: stop`` either way, so position is the only evidence.
+        It is carried forward because a short track can start and end between polls.
         """
         if self.state.duration <= 0:
             return True
         position = self.state.position
         if self.state.status == "playing":
             position += max(0.0, time.monotonic() - self._position_at)
-        # Never let the slack swallow the whole track: on something shorter
-        # than a couple of seconds that would make every stop look like an end.
+        # Never let the slack swallow a whole short track.
         slack = min(EOF_SLACK, self.state.duration / 2)
         return position >= self.state.duration - slack
 
-    # ------------------------------------------------------------- playback
 
     def _uri_for(self, target: StreamTarget, track: Track) -> str:
         if target.native and target.source == self.backend.source:
@@ -728,12 +639,10 @@ class MpdSink(Sink):
     async def play(self, target: StreamTarget, track: Track) -> None:
         uri = self._uri_for(target, track)
 
-        # Replacing the queue takes MPD through stop; hold off the watchers
-        # until it is playing again.
+        # Replacing the queue takes MPD through stop.
         self._changing = True
         try:
-            # MPD keeps the last playback error until it is told to forget it,
-            # and a stale one would make the next track look broken too.
+            # MPD keeps the last playback error until told to forget it.
             await self.backend.call("clearerror")
             await self.backend.call("clear")
             await self.backend.call("single", "1")
@@ -782,8 +691,7 @@ class MpdSink(Sink):
     async def set_volume(self, volume: float) -> None:
         volume = max(0.0, min(1.0, float(volume)))
         if not self._has_mixer:
-            # No mixer on MPD's output: remember the wish, but do not pretend
-            # it did anything.
+            # No mixer: remember the wish without pretending it did anything.
             self.state.volume = volume
             self._changed()
             return

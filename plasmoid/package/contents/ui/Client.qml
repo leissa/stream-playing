@@ -1,11 +1,4 @@
-/*
- * Connection to the streamplay daemon.
- *
- * Wraps the WebSocket control channel: reconnects on its own, turns the
- * request/response protocol into `call(method, params, callback)`, and keeps
- * the pushed player state available as plain properties for the views to bind
- * against.
- */
+/* Connection to the streamplay daemon: the whole WebSocket transport. */
 
 import QtQuick
 import QtWebSockets
@@ -16,12 +9,10 @@ QtObject {
     property string host: "127.0.0.1"
     property int port: 8760
 
-    /* ---- connection ---- */
     readonly property bool online: socket.status === WebSocket.Open
     readonly property bool connecting: socket.status === WebSocket.Connecting
     property string socketError: ""
 
-    /* ---- pushed state ---- */
     property var playback: ({ status: "stopped", track: null, position: 0,
                               duration: 0, volume: 0, shuffle: false,
                               repeat: "none", index: -1, queueLength: 0,
@@ -51,7 +42,6 @@ QtObject {
     signal profilesUpdated()
     signal errorReported(string message)
 
-    /* ---- request bookkeeping ---- */
     property int _nextId: 0
     property var _pending: ({})
 
@@ -106,7 +96,6 @@ QtObject {
 
     function setOutput(id) { send("outputs.set", { id: id }); }
 
-    /* ---- transport shorthands ---- */
     function playPause() { send("player.playPause", {}); }
     function stop()      { send("player.stop", {}); }
     function next()      { send("player.next", {}); }
@@ -126,7 +115,6 @@ QtObject {
         send("player.setRepeat", { mode: order[(at + 1) % order.length] });
     }
 
-    /* ---- queue shorthands ---- */
     function enqueue(spec, mode, play) {
         const params = Object.assign({}, spec, { mode: mode || "append" });
         if (play) {
@@ -174,10 +162,7 @@ QtObject {
 
     function _applyState(next) {
         playback = next;
-        // The daemon repeats the service and output lists with every state
-        // push. Reassigning them unconditionally would fire a change signal
-        // several times a second and make the library browser reload itself,
-        // so only take them when they really differ.
+        // The daemon repeats these every state push, and reassigning reloads the browser.
         if (next.sources) {
             _adopt("sources", next.sources);
         }
@@ -195,7 +180,6 @@ QtObject {
         }
     }
 
-    /* ---- the socket itself ---- */
     property WebSocket _socket: WebSocket {
         id: socket
         url: "ws://" + client.host + ":" + client.port + "/"

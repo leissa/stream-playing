@@ -1,8 +1,5 @@
-"""Exercises the MPD library and output against a stub MPD server.
-
-Run with ``python3 tests/test_mpd.py`` from the ``daemon`` directory. Like the
-other test files this needs nothing installed: ``fake_mpd`` speaks enough of
-the protocol on a loopback socket to answer everything the backend asks.
+"""Exercises the MPD library and output against ``fake_mpd``, so nothing has to be
+installed. Run with ``python3 tests/test_mpd.py`` from ``daemon``.
 """
 
 from __future__ import annotations
@@ -43,7 +40,6 @@ async def wait_for(predicate, timeout: float = 5.0) -> bool:
     return predicate()
 
 
-# --------------------------------------------------------------- the library
 
 async def test_library() -> None:
     server = FakeMpd()
@@ -82,9 +78,7 @@ async def test_library() -> None:
     check("a track carries its duration", tracks[0].duration == 0.8)
     check("a track carries its genre", tracks[0].genre == "Ambient")
 
-    # The quoting is the whole point of this one: both a backslash and an
-    # apostrophe have to survive being wrapped in a filter and then in a
-    # protocol argument.
+    # A backslash and an apostrophe must survive both layers of quoting.
     odd = named["Rock'n'Roll \\ Forever"]
     odd_tracks = await backend.album_tracks(odd.id)
     check("an album whose name needs escaping can still be opened",
@@ -119,7 +113,6 @@ async def test_library() -> None:
     await server.stop()
 
 
-# -------------------------------------------------------------- reaching it
 
 async def test_connecting() -> None:
     server = FakeMpd(password="hunter2")
@@ -147,8 +140,7 @@ async def test_connecting() -> None:
     await backend.connect()
     check("the right password gets in", bool(await backend.artists()))
 
-    # Pull the socket out from under it: the next call should quietly redial
-    # rather than surface a failure the user can do nothing about.
+    # Pull the socket away: the next call should redial rather than fail.
     await backend.client.close()
     check("a dropped connection is re-established on the next call",
           len(await backend.artists()) == 3)
@@ -177,7 +169,6 @@ async def test_connecting() -> None:
     await backend.close()
 
 
-# ----------------------------------------------------------- getting at audio
 
 async def test_stream_targets(tmp: pathlib.Path) -> None:
     server = FakeMpd()
@@ -227,7 +218,6 @@ async def test_stream_targets(tmp: pathlib.Path) -> None:
     await server.stop()
 
 
-# ------------------------------------------------------------- MPD as output
 
 async def test_sink() -> None:
     server = FakeMpd()

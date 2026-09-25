@@ -1,8 +1,4 @@
 """Plain data objects shared by backends, players and the wire protocol.
-
-Everything that crosses the WebSocket is built from these, so the applet only
-ever has to understand one shape of track/album/artist regardless of whether it
-came from Subsonic or Kodi.
 """
 
 from __future__ import annotations
@@ -35,8 +31,7 @@ class Track:
     cover_id: str | None = None
     # Opaque per-backend payload (stream URL hints, Kodi file path, ...).
     extra: dict[str, Any] = field(default_factory=dict)
-    # Assigned by the queue; stable for the lifetime of the entry so the UI and
-    # MPRIS can identify a specific queue slot even after reordering.
+    # Assigned by the queue and stable across reordering, so a slot stays identifiable.
     uid: str = ""
 
     def to_json(self) -> dict[str, Any]:

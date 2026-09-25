@@ -1,10 +1,4 @@
-/*
- * The merged library browser.
- *
- * With no source filter set the daemon queries every connected service and
- * merges the answers, so artists and albums from Navidrome and Kodi appear in
- * one list; each row carries a badge saying where it came from.
- */
+/* The library browser, merging every connected service unless filtered. */
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -30,9 +24,7 @@ Item {
     /* Which service to browse; empty means all of them at once. */
     property string sourceFilter: ""
 
-    /* Bound rather than read inline, so changing it in the settings can
-       trigger a reload -- an already-loaded list would otherwise keep the
-       order it was fetched with. */
+    /* Bound, not read inline, so changing the setting can trigger a reload. */
     readonly property string albumSort: Plasmoid.configuration.albumSort
 
     /* The top-level sections, in the order and selection the user chose. */
@@ -62,8 +54,7 @@ Item {
                 }
             }
         }
-        // Anything the stored order does not mention -- a section added by a
-        // later version, say -- still has to appear somewhere.
+        // A section the stored order predates still has to appear somewhere.
         for (const key in known) {
             if (!seen[key] && known[key].shown) {
                 kept.push(known[key]);
@@ -282,8 +273,7 @@ Item {
         function onReloaded() { pane.refresh(); }
     }
 
-    // Retry on the way back in, so a failure while a server was down does not
-    // leave the tab stuck on an error until something else happens to change.
+    // Retry on the way back in, so a failure while a server was down is not sticky.
     onVisibleChanged: {
         if (visible && (loadError || entries.length === 0)) {
             refresh();
@@ -352,8 +342,7 @@ Item {
                                        title: "" });
                 }
 
-                // Follow the filter rather than our own index: the entries
-                // shift whenever a service connects or disconnects.
+                // Follow the filter, since entries shift as services come and go.
                 function syncToFilter() {
                     for (let i = 0; i < model.length; ++i) {
                         if ((model[i].id || "") === pane.sourceFilter) {
@@ -441,9 +430,7 @@ Item {
                 reuseItems: true
 
                 delegate: LibraryRow {
-                    // Qt 6 only injects modelData into a delegate that asks for
-                    // it explicitly; without this the binding below throws for
-                    // every row and the list comes up empty.
+                    // Qt 6 injects modelData only into a delegate that asks for it.
                     required property var modelData
 
                     width: list.width

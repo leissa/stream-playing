@@ -55,8 +55,7 @@ Item {
             LibraryPane {}
         }
 
-        // Errors are reported by the daemon in response to something the user
-        // just did, so show them here rather than swallowing them.
+        // The daemon reports these in response to something the user just did.
         PlasmaComponents.Label {
             id: notice
             Layout.fillWidth: true

@@ -1,9 +1,6 @@
-"""MPRIS2 D-Bus interface, so KDE's Now Playing / media keys drive the daemon.
+"""MPRIS2 D-Bus interface, so KDE's Now Playing and media keys drive the daemon.
 
-dbus-python needs a GLib main loop, which does not coexist with asyncio in one
-thread. The service therefore runs its own thread: incoming D-Bus calls are
-forwarded to the asyncio loop with ``run_coroutine_threadsafe`` and state
-updates are pushed back with ``GLib.idle_add``.
+dbus-python needs a GLib main loop, so this runs in its own thread.
 """
 
 from __future__ import annotations
@@ -51,7 +48,6 @@ class MprisObject(dbus.service.Object):
         self._state: dict[str, Any] = {}
         self._state_at = time.monotonic()
 
-    # -------------------------------------------------------------- helpers
 
     def _dispatch(self, coro_factory: Callable[[], Any]) -> None:
         self._bridge.dispatch(coro_factory)
@@ -146,7 +142,6 @@ class MprisObject(dbus.service.Object):
             f"No such interface {interface}",
             name="org.freedesktop.DBus.Error.UnknownInterface")
 
-    # ----------------------------------------------------------- properties
 
     @dbus.service.method(PROPS_IFACE, in_signature="ss", out_signature="v")
     def Get(self, interface, prop):
@@ -178,7 +173,6 @@ class MprisObject(dbus.service.Object):
     def PropertiesChanged(self, interface, changed, invalidated):
         pass
 
-    # -------------------------------------------------------------- methods
 
     @dbus.service.method(ROOT_IFACE)
     def Raise(self):
@@ -230,7 +224,6 @@ class MprisObject(dbus.service.Object):
     def Seeked(self, position):
         pass
 
-    # ---------------------------------------------------------------- input
 
     def apply_state(self, state: dict[str, Any]) -> None:
         """Replace the cached state and announce whatever actually changed."""
@@ -264,7 +257,6 @@ class MprisService:
         self._ready = threading.Event()
         self._error: Exception | None = None
 
-    # ------------------------------------------------------------ lifecycle
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -303,7 +295,6 @@ class MprisService:
         if self._thread is not None:
             self._thread.join(timeout=3)
 
-    # ----------------------------------------------------- GLib -> asyncio
 
     def dispatch(self, coro_factory: Callable[[], Any]) -> None:
         """Run a coroutine on the asyncio loop from the GLib thread."""
@@ -329,7 +320,6 @@ class MprisService:
             return
         await getattr(player, method)(*args)
 
-    # ----------------------------------------------------- asyncio -> GLib
 
     def push_state(self, state: dict[str, Any]) -> None:
         if self._object is None:

@@ -1,9 +1,4 @@
-"""The one queue.
-
-Tracks in it may come from any connected service, and it plays through whichever
-sink is currently selected. Because neither the library nor the output owns the
-queue, a Navidrome album and a Kodi album can sit next to each other in it and
-be sent to either the local speakers or a Kodi box.
+"""The one queue, holding tracks from any service and playing through any sink.
 """
 
 from __future__ import annotations
@@ -30,9 +25,7 @@ _uid_counter = itertools.count(1)
 class UnifiedPlayer:
     """Queue, play order and transport, independent of source and destination.
 
-    ``resolver`` supplies the per-track glue: ``stream_target(track)`` says how
-    a track can be played and ``scrobble(track, submission)`` reports it back to
-    the service it came from.
+    ``resolver`` supplies ``stream_target(track)`` and ``scrobble(track, submission)``.
     """
 
     def __init__(self, resolver, emit: Callable[[str, dict], None],
@@ -59,7 +52,6 @@ class UnifiedPlayer:
         self._pending_volume: float = float(settings.get("volume", 0.7))
         self._last_state: dict[str, Any] | None = None
 
-    # ---------------------------------------------------------------- sinks
 
     @property
     def sink(self) -> Sink | None:
@@ -102,7 +94,6 @@ class UnifiedPlayer:
             raise BackendError("No playback output is available")
         return self._sink
 
-    # ----------------------------------------------------------- inspection
 
     @property
     def current(self) -> Track | None:
@@ -139,19 +130,13 @@ class UnifiedPlayer:
     def queue(self) -> dict[str, Any]:
         return {"tracks": [t.to_json() for t in self._tracks], "index": self._index}
 
-    def sources_in_queue(self) -> set[str]:
-        return {t.source for t in self._tracks if t.source}
-
     def _changed(self) -> None:
         state = self.state()
         self._last_state = state
         self._emit("state", state)
 
     def _on_sink_changed(self) -> None:
-        """Sink callback: mpv reports the play position many times a second.
-
-        Only a genuine change of state is worth a full push; plain progress goes
-        out as a much smaller, rate-limited ``position`` event.
+        """Sink callback; plain progress goes out as a smaller rate-limited event.
         """
         state = self.state()
         previous, self._last_state = self._last_state, state
@@ -176,7 +161,6 @@ class UnifiedPlayer:
         self._emit("queue", self.queue())
         self._changed()
 
-    # ---------------------------------------------------------- play order
 
     def _rebuild_order(self) -> None:
         """Recompute the shuffle walk, keeping the current track at its head."""
@@ -215,7 +199,6 @@ class UnifiedPlayer:
             return target % len(self._tracks)
         return None
 
-    # ------------------------------------------------------------- playback
 
     async def _load(self, index: int, seek_to: float = 0.0) -> None:
         if not (0 <= index < len(self._tracks)):
@@ -235,9 +218,7 @@ class UnifiedPlayer:
             target = await self._resolver.stream_target(track)
             await sink.play(target, track)
         except SourceUnavailable as exc:
-            # Step over it. Only give up once the whole queue has been tried,
-            # otherwise a handful of tracks from a disconnected service would
-            # stop playback even though the rest of the queue is fine.
+            # Step over it, giving up only once the whole queue has been tried.
             self._skipped += 1
             if self._skipped >= max(1, len(self._tracks)):
                 self._skipped = 0
@@ -318,7 +299,6 @@ class UnifiedPlayer:
             self._scrobbled = True
             asyncio.create_task(self._scrobble(self.current, submission=True))
 
-    # ------------------------------------------------------------ transport
 
     async def play(self) -> None:
         if self.current is None:
@@ -397,7 +377,6 @@ class UnifiedPlayer:
         self._repeat = mode
         self._changed()
 
-    # ---------------------------------------------------------------- queue
 
     @staticmethod
     def _stamp(tracks: Sequence[Track]) -> list[Track]:
@@ -491,7 +470,3 @@ class UnifiedPlayer:
         if 0 <= index < len(self._tracks):
             self._skipped = 0
             await self._load(index)
-
-    def drop_source(self, source: str) -> list[int]:
-        """Queue positions belonging to a service that just went away."""
-        return [i for i, track in enumerate(self._tracks) if track.source == source]

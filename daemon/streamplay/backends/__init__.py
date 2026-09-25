@@ -23,9 +23,7 @@ BACKEND_TYPES = {
     "mpd": MpdBackend,
 }
 
-#: The services that are players as well as libraries, and so turn up in the
-#: output list once connected. Kept next to the table above so the two cannot
-#: drift apart.
+#: The services that are outputs as well as libraries.
 PLAYBACK_TYPES = frozenset({"kodi", "mpd"})
 
 

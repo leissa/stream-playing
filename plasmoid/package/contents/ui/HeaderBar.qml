@@ -90,8 +90,7 @@ RowLayout {
 
         Connections {
             target: client
-            // The daemon decides which output is live; follow it rather than
-            // letting the combo's own selection drift out of step.
+            // The daemon decides which output is live.
             function onOutputsChanged() { outputBox.syncToActive(); }
         }
     }
@@ -165,8 +164,7 @@ RowLayout {
                         client.send(checked ? "sources.connect"
                                             : "sources.disconnect",
                                     { id: modelData.id });
-                        // Ticking breaks the binding; restore it so the daemon,
-                        // which may fail to connect, has the last word.
+                        // Ticking breaks the binding, and the daemon may fail to connect.
                         checked = Qt.binding(
                             () => modelData.state === "connected");
                     }
