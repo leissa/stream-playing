@@ -11,6 +11,7 @@ DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/streamplay"
 BIN_DIR="$HOME/.local/bin"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 APPLET_ID="io.github.leissa.streamplay"
+ICON="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/$APPLET_ID.svg"
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m==>\033[0m %s\n' "$*" >&2; }
@@ -72,6 +73,8 @@ install_applet() {
     else
         kpackagetool6 --type Plasma/Applet --install "$HERE/plasmoid/package"
     fi
+    # The widget picker only looks icons up in the theme, never in the package.
+    install -Dm644 "$HERE/plasmoid/package/contents/icons/streamplay.svg" "$ICON"
 }
 
 uninstall() {
@@ -82,6 +85,7 @@ uninstall() {
 
     say "Removing the applet"
     kpackagetool6 --type Plasma/Applet --remove "$APPLET_ID" 2>/dev/null || true
+    rm -f "$ICON"
 
     say "Removing the daemon"
     rm -rf "$DATA_DIR"

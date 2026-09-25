@@ -20,7 +20,9 @@ class MpvSink(Sink):
         super().__init__()
         self.state.volume = initial_volume
         self._mpv = Mpv(self._on_event, self._on_property)
-        self._stopping = False
+        #: The entry we loaded; an end-file for any other is stale.
+        self._entry: int | None = None
+        self._entry_pending = False
 
     async def start(self) -> None:
         await self._mpv.start()
@@ -31,12 +33,15 @@ class MpvSink(Sink):
 
 
     async def _on_event(self, name: str, payload: dict) -> None:
-        if name == "end-file":
-            reason = payload.get("reason")
-            if self._stopping:
-                # Our own stop/replace; the player already knows what happens next.
-                self._stopping = False
+        if name == "start-file":
+            if self._entry_pending:
+                self._entry = payload.get("playlist_entry_id")
+                self._entry_pending = False
+        elif name == "end-file":
+            if self._entry is None or payload.get("playlist_entry_id") != self._entry:
                 return
+            self._entry = None
+            reason = payload.get("reason")
             if reason == "eof":
                 self.state.status = "stopped"
                 await self._ended("eof")
@@ -84,20 +89,20 @@ class MpvSink(Sink):
             raise BackendError(f"Cannot play {track.title} on this computer")
         await self._ensure_running()
 
-        self._stopping = True  # the replace produces an end-file we must ignore
+        self._entry, self._entry_pending = None, False
         self.state.status = "playing"
         self.state.position = 0.0
         self.state.duration = track.duration
         self.state.error = None
         try:
             await self._mpv.set_property("pause", False)
-            await self._mpv.loadfile(target.url, "replace")
+            entry = await self._mpv.loadfile(target.url, "replace")
         except MpvError as exc:
-            self._stopping = False
             self.state.status = "stopped"
             self.state.error = str(exc)
             self._changed()
             raise BackendError(str(exc)) from exc
+        self._entry, self._entry_pending = entry, entry is None
         self._changed()
 
     async def resume(self) -> None:
@@ -114,14 +119,14 @@ class MpvSink(Sink):
         self._changed()
 
     async def stop(self) -> None:
-        self._stopping = True
+        self._entry, self._entry_pending = None, False
         self.state.status = "stopped"
         self.state.position = 0.0
         self.state.buffering = False
         try:
             await self._mpv.stop()
         except MpvError:
-            self._stopping = False
+            pass
         self._changed()
 
     async def seek(self, position: float) -> None:

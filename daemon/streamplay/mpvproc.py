@@ -263,8 +263,10 @@ class Mpv:
     async def get_property(self, name: str) -> Any:
         return await self.command("get_property", name)
 
-    async def loadfile(self, url: str, mode: str = "replace") -> None:
-        await self.command("loadfile", url, mode, timeout=30.0)
+    async def loadfile(self, url: str, mode: str = "replace") -> int | None:
+        """Returns the playlist entry id, which mpv before 0.38 does not report."""
+        reply = await self.command("loadfile", url, mode, timeout=30.0)
+        return reply.get("playlist_entry_id") if isinstance(reply, dict) else None
 
     async def stop(self) -> None:
         await self.command("stop")

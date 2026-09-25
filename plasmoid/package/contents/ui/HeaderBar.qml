@@ -14,8 +14,9 @@ RowLayout {
     id: header
 
     readonly property var client: root.client
+    readonly property var enabledSources: client.sources.filter(s => s.enabled)
     readonly property int failed:
-        client.sources.filter(s => s.state === "error").length
+        enabledSources.filter(s => s.state === "error").length
     readonly property string summary: {
         if (!client.online) {
             return i18n("The streamplay service is not running");
@@ -24,11 +25,11 @@ RowLayout {
             return i18n("No music server has been set up yet");
         }
         const connected = client.connectedSources.length;
-        const total = client.sources.length;
+        const total = header.enabledSources.length;
         let text = i18np("%1 of %2 music server connected",
                          "%1 of %2 music servers connected", connected, total);
-        for (let i = 0; i < client.sources.length; ++i) {
-            const source = client.sources[i];
+        for (let i = 0; i < header.enabledSources.length; ++i) {
+            const source = header.enabledSources[i];
             if (source.state === "error") {
                 text += "\n" + source.name + ": " + (source.message || i18n("failed"));
             }
@@ -142,9 +143,9 @@ RowLayout {
                     required property var modelData
 
                     checkable: true
-                    checked: modelData.state === "connected"
+                    checked: modelData.enabled
                     enabled: client.online
-                    icon.name: modelData.state === "error"
+                    icon.name: modelData.enabled && modelData.state === "error"
                                ? "dialog-error"
                                : Fmt.serverIcon(modelData.type)
                     text: {
@@ -164,9 +165,8 @@ RowLayout {
                         client.send(checked ? "sources.connect"
                                             : "sources.disconnect",
                                     { id: modelData.id });
-                        // Ticking breaks the binding, and the daemon may fail to connect.
-                        checked = Qt.binding(
-                            () => modelData.state === "connected");
+                        // Ticking breaks the binding.
+                        checked = Qt.binding(() => modelData.enabled);
                     }
                 }
             }

@@ -312,7 +312,22 @@ async def main() -> None:
         await player.set_sink(None, carry_over=False)
         await local.close()
 
+        await test_first_track_advances(navidrome, router)
         await test_mpv_losing_its_socket()
+
+
+async def test_first_track_advances(library, router) -> None:
+    """Loading into an idle mpv produces no end-file, so nothing may be waiting for one."""
+    player = UnifiedPlayer(router, lambda event, data: None, {"volume": 0.0})
+    sink = MpvSink(0.0)
+    await sink.start()
+    await player.set_sink(sink)
+    await player.enqueue(library.tracks(2), mode="replace")
+    await asyncio.sleep(3.8)
+    check("the first track after startup advances at its end",
+          player.state()["index"] == 1 and player.state()["status"] == "playing")
+    await player.set_sink(None, carry_over=False)
+    await sink.close()
 
 
 async def test_mpv_losing_its_socket() -> None:
