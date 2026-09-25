@@ -105,7 +105,7 @@ case "${1:-install}" in
         install_applet
         echo
         say "Done. Add the “Stream Playing” widget to a panel or the desktop,"
-        say "then use its settings to add your Navidrome/Subsonic or Kodi servers."
+        say "then use its settings to add your Navidrome/Subsonic, Kodi or MPD servers."
         ;;
     uninstall|remove)
         uninstall

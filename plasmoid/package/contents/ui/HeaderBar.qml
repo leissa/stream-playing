@@ -8,6 +8,8 @@ import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.plasmoid
 import org.kde.kirigami as Kirigami
 
+import "Formatting.js" as Fmt
+
 RowLayout {
     id: header
 
@@ -145,8 +147,7 @@ RowLayout {
                     enabled: client.online
                     icon.name: modelData.state === "error"
                                ? "dialog-error"
-                               : modelData.type === "kodi" ? "kodi"
-                                                           : "server-database"
+                               : Fmt.serverIcon(modelData.type)
                     text: {
                         switch (modelData.state) {
                         case "connecting":

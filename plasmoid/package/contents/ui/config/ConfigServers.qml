@@ -15,6 +15,7 @@ import org.kde.kcmutils as KCM
 import org.kde.kirigami as Kirigami
 
 import ".." as Sp
+import "../Formatting.js" as Fmt
 
 KCM.SimpleKCM {
     id: page
@@ -29,13 +30,25 @@ KCM.SimpleKCM {
     property bool statusIsError: false
 
     function blankProfile(type) {
-        return type === "kodi"
-            ? { type: "kodi", name: i18n("Kodi"), host: "", port: 8080,
-                wsPort: 9090, username: "", password: "", useTls: false,
-                enabled: true }
-            : { type: "subsonic", name: i18n("Navidrome"), url: "",
-                username: "", password: "", legacyAuth: false, verifyTls: true,
-                enabled: true };
+        switch (type) {
+        case "kodi":
+            return { type: "kodi", name: i18n("Kodi"), host: "", port: 8080,
+                     wsPort: 9090, username: "", password: "", useTls: false,
+                     enabled: true };
+        case "mpd":
+            return { type: "mpd", name: i18n("MPD"), host: "127.0.0.1",
+                     port: 6600, password: "", musicDirectory: "",
+                     enabled: true };
+        default:
+            return { type: "subsonic", name: i18n("Navidrome"), url: "",
+                     username: "", password: "", legacyAuth: false,
+                     verifyTls: true, enabled: true };
+        }
+    }
+
+    /* MPD has no user accounts, and nothing it speaks goes over TLS. */
+    function usesLogin(type) {
+        return type === "subsonic" || type === "kodi";
     }
 
     function editExisting(id) {
@@ -105,8 +118,7 @@ KCM.SimpleKCM {
                         Kirigami.Icon {
                             implicitWidth: Kirigami.Units.iconSizes.medium
                             implicitHeight: Kirigami.Units.iconSizes.medium
-                            source: modelData.type === "kodi"
-                                    ? "kodi" : "server-database"
+                            source: Fmt.serverIcon(modelData.type)
                         }
 
                         ColumnLayout {
@@ -187,7 +199,7 @@ KCM.SimpleKCM {
                 visible: client.sources.length === 0
                 opacity: 0.7
                 text: i18n("No music servers yet. Add a Subsonic-compatible "
-                         + "server such as Navidrome, or a Kodi instance.")
+                         + "server such as Navidrome, a Kodi instance, or MPD.")
             }
 
             RowLayout {
@@ -207,6 +219,15 @@ KCM.SimpleKCM {
                     text: i18n("Add Kodi…")
                     onClicked: {
                         page.draft = page.blankProfile("kodi");
+                        page.status = "";
+                    }
+                }
+
+                QQC2.Button {
+                    icon.name: "list-add"
+                    text: i18n("Add MPD…")
+                    onClicked: {
+                        page.draft = page.blankProfile("mpd");
                         page.status = "";
                     }
                 }
@@ -248,8 +269,10 @@ KCM.SimpleKCM {
                 QQC2.TextField {
                     Kirigami.FormData.label: i18n("Host:")
                     Layout.fillWidth: true
-                    visible: page.draft && page.draft.type === "kodi"
-                    placeholderText: "192.168.1.20"
+                    visible: page.draft && (page.draft.type === "kodi"
+                                            || page.draft.type === "mpd")
+                    placeholderText: page.draft && page.draft.type === "mpd"
+                                     ? "127.0.0.1" : "192.168.1.20"
                     text: page.draft ? (page.draft.host || "") : ""
                     onTextEdited: page.draft.host = text
                 }
@@ -278,11 +301,50 @@ KCM.SimpleKCM {
                     onValueModified: page.draft.wsPort = value
                 }
 
+                // -- MPD -----------------------------------------------------
+
+                QQC2.SpinBox {
+                    Kirigami.FormData.label: i18n("Port:")
+                    visible: page.draft && page.draft.type === "mpd"
+                    from: 1
+                    to: 65535
+                    editable: true
+                    value: page.draft && page.draft.port ? page.draft.port : 6600
+                    textFromValue: value => value.toString()
+                    valueFromText: text => parseInt(text, 10)
+                    onValueModified: page.draft.port = value
+                }
+
+                ColumnLayout {
+                    Kirigami.FormData.label: i18n("Music folder:")
+                    Layout.fillWidth: true
+                    visible: page.draft && page.draft.type === "mpd"
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.TextField {
+                        Layout.fillWidth: true
+                        placeholderText: "/var/lib/mpd/music"
+                        text: page.draft ? (page.draft.musicDirectory || "") : ""
+                        onTextEdited: page.draft.musicDirectory = text
+                    }
+
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        font: Kirigami.Theme.smallFont
+                        opacity: 0.7
+                        text: i18n("Where MPD keeps its files, as this computer "
+                                 + "sees them. MPD serves no audio itself, so "
+                                 + "without this its music can only play on MPD.")
+                    }
+                }
+
                 // -- shared --------------------------------------------------
 
                 QQC2.TextField {
                     Kirigami.FormData.label: i18n("Username:")
                     Layout.fillWidth: true
+                    visible: page.draft && page.usesLogin(page.draft.type)
                     text: page.draft ? (page.draft.username || "") : ""
                     onTextEdited: page.draft.username = text
                 }
@@ -312,6 +374,7 @@ KCM.SimpleKCM {
                 }
 
                 QQC2.CheckBox {
+                    visible: page.draft && page.usesLogin(page.draft.type)
                     text: i18n("Check the TLS certificate")
                     checked: page.draft ? page.draft.verifyTls !== false : true
                     onToggled: page.draft.verifyTls = checked

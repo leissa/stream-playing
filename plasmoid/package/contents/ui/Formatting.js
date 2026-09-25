@@ -35,3 +35,12 @@ function subtitle(track) {
     }
     return parts.join(" — ");
 }
+
+/* The icon standing for a kind of music server, used wherever one is listed. */
+function serverIcon(type) {
+    switch (type) {
+    case "kodi":  return "kodi";
+    case "mpd":   return "folder-music";
+    default:      return "server-database";
+    }
+}

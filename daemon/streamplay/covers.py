@@ -72,8 +72,7 @@ class CoverCache:
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._inflight[key] = future
         try:
-            path = await asyncio.to_thread(
-                self._download, backend, key, cover_id, size)
+            path = await self._retrieve(backend, key, cover_id, size)
             if not future.done():
                 future.set_result(path)
             return path
@@ -84,6 +83,28 @@ class CoverCache:
             return None
         finally:
             self._inflight.pop(key, None)
+
+    async def _retrieve(self, backend, key: str, cover_id: str,
+                        size: int) -> Path | None:
+        """Get the art however this backend is able to hand it over.
+
+        Most services answer with an HTTP URL, which is fetched in a thread
+        because ``requests`` blocks. MPD instead sends the bytes down its own
+        control connection, so that path is asked first and stays on the event
+        loop.
+        """
+        data = await backend.cover_bytes(cover_id, size)
+        if data:
+            return self._store(key, data)
+        return await asyncio.to_thread(
+            self._download, backend, key, cover_id, size)
+
+    def _store(self, key: str, data: bytes) -> Path:
+        path = self.dir / (key + _extension(data))
+        tmp = path.with_suffix(path.suffix + ".part")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+        return path
 
     def _download(self, backend, key: str, cover_id: str, size: int) -> Path | None:
         request = backend.cover_request(cover_id, size)
@@ -109,12 +130,7 @@ class CoverCache:
         data = b"".join(chunks)
         if not data:
             return None
-
-        path = self.dir / (key + _extension(data))
-        tmp = path.with_suffix(path.suffix + ".part")
-        tmp.write_bytes(data)
-        tmp.replace(path)
-        return path
+        return self._store(key, data)
 
     def clear(self) -> None:
         for entry in self.dir.glob("*"):

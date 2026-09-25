@@ -42,9 +42,13 @@ def slugify(name: str) -> str:
 class Profile(dict):
     """One backend configuration.
 
-    Common keys: ``id``, ``name``, ``type`` (``subsonic``/``kodi``).
+    Common keys: ``id``, ``name``, ``type`` (``subsonic``/``kodi``/``mpd``).
     Subsonic: ``url``, ``username``, ``password``, ``legacyAuth``, ``verifyTls``.
     Kodi: ``host``, ``port``, ``username``, ``password``, ``wsPort``, ``useTls``.
+    MPD: ``host``, ``port``, ``password``, ``musicDirectory``, ``socket``.
+    ``socket`` is a path to MPD's unix socket, used instead of host/port; it is
+    not in the settings dialog, but MPD tells a socket client where its music
+    lives, so setting it by hand saves configuring ``musicDirectory`` too.
     """
 
     @property

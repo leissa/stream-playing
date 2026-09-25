@@ -12,8 +12,8 @@ import logging
 from typing import Any, Callable
 from urllib.parse import urlencode
 
-from .backends import (Backend, BackendError, Sink, SourceUnavailable,
-                       create_backend, create_sink)
+from .backends import (PLAYBACK_TYPES, Backend, BackendError, Sink,
+                       SourceUnavailable, create_backend, create_sink)
 from .config import Config
 from .covers import CoverCache
 from .models import Track
@@ -212,7 +212,7 @@ class Hub:
                 "enabled": profile.get("enabled", True),
                 "state": status["state"],
                 "message": status.get("message"),
-                "canPlayback": profile.type == "kodi",
+                "canPlayback": profile.type in PLAYBACK_TYPES,
             })
         return out
 
@@ -273,9 +273,12 @@ class Hub:
 
     async def _drop_source(self, profile_id: str) -> None:
         """Tear down a service and anything that depended on it."""
-        sink_id = f"kodi:{profile_id}"
-        sink = self.sinks.pop(sink_id, None)
-        if sink is not None:
+        # Every output a service brought with it goes too. They are found by
+        # the profile they belong to rather than by a composed id, so nothing
+        # here has to know which kinds of service can play audio.
+        for sink_id, sink in [(k, v) for k, v in self.sinks.items()
+                              if v.source == profile_id]:
+            self.sinks.pop(sink_id, None)
             if self.player.sink is sink:
                 await self.player.set_sink(self.sinks.get(LOCAL_OUTPUT),
                                            carry_over=False)

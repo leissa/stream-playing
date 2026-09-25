@@ -1,11 +1,11 @@
 # Stream Playing
 
 A Plasma 6 widget for self-hosted music libraries. It connects to
-**Navidrome / Subsonic-compatible** servers and to **Kodi** — several of them at
-the same time — and puts everything into a single shared queue that can be
-played on this computer or on any connected Kodi box. It registers itself with
-KDE as an MPRIS2 player, so Now Playing, the media keys and the lock screen all
-control it.
+**Navidrome / Subsonic-compatible** servers, to **Kodi** and to **MPD** —
+several of them at the same time — and puts everything into a single shared
+queue that can be played on this computer or on any connected Kodi or MPD
+instance. It registers itself with KDE as an MPRIS2 player, so Now Playing, the
+media keys and the lock screen all control it.
 
 ## What it does
 
@@ -15,7 +15,8 @@ control it.
 - **One queue for all of them.** A Navidrome album and a Kodi album can sit next
   to each other in the same queue and play one after the other.
 - **Pick where it plays.** The queue can go to this computer's speakers (via
-  mpv) or to a Kodi instance. Switching mid-track carries the position over.
+  mpv), to a Kodi instance or to MPD. Switching mid-track carries the position
+  over.
 - **The usual transport.** Play, pause, stop, next, previous, seek, rewind by
   dragging the progress bar, volume, shuffle and three repeat modes.
 - **Queue editing.** Enqueue, play next, replace, remove, drag to reorder,
@@ -44,15 +45,20 @@ it. That also means music keeps playing if plasmashell is restarted.
 │  │ libraries │  outputs  │  │
 │  │ Subsonic  │  mpv      │  │   any library can play on any output
 │  │ Kodi      │  Kodi     │  │
+│  │ MPD       │  MPD      │  │
 │  └───────────┴───────────┘  │
 │  MPRIS2 ──────> D-Bus       │
 └─────────────────────────────┘
 ```
 
 A *library* is something you browse; an *output* is somewhere audio comes out.
-Kodi is both. Because neither owns the queue, tracks from one service can play
-through the other: Kodi songs are streamed locally over Kodi's own HTTP server,
-and Subsonic streams can be handed to Kodi as a URL.
+Kodi and MPD are both. Because neither owns the queue, tracks from one service
+can play through the other: Kodi songs are streamed locally over Kodi's own HTTP
+server, and Subsonic streams can be handed to Kodi or MPD as a URL.
+
+MPD is the one asymmetric case. It serves no audio over its control port, so
+playing its music anywhere other than on MPD itself needs the files to be
+readable from this computer as well — see the music folder setting below.
 
 ## Requirements
 
@@ -86,8 +92,8 @@ To remove everything again (your servers and settings are kept):
 
 ## Adding servers
 
-Open the widget's settings → **Music Servers** → *Add Navidrome / Subsonic…* or
-*Add Kodi…*.
+Open the widget's settings → **Music Servers** → *Add Navidrome / Subsonic…*,
+*Add Kodi…* or *Add MPD…*.
 
 - **Navidrome / Subsonic** needs the base URL (`https://music.example.org`, not
   the `/rest` path), a username and a password. The password is never sent in
@@ -97,6 +103,20 @@ Open the widget's settings → **Music Servers** → *Add Navidrome / Subsonic�
   event port (9090). In Kodi, turn on *Settings → Services → Control → Allow
   remote control via HTTP* and *Allow remote control from applications on other
   systems*. A username and password are optional but recommended.
+- **MPD** needs the host and port (6600 by default), and a password only if
+  `password` is set in `mpd.conf`. MPD 0.21 or newer is required.
+
+  The **music folder** is optional but worth filling in. MPD hands out no audio
+  itself, so without it MPD's music can only be played on MPD; with it — the
+  same path as `music_directory` in `mpd.conf`, as this computer sees it — its
+  tracks play on the local speakers and on Kodi as well. For an MPD on another
+  machine that means the library has to be mounted here, at whatever path you
+  enter.
+
+  If MPD listens on a unix socket, put its path under `socket` in
+  `config.json`; the settings dialog has no field for it. That is worth doing
+  for a local MPD, because MPD tells a socket client where its music lives and
+  the music folder then fills itself in.
 
 **Test Connection** checks the settings without touching the live connection.
 **Save and Connect** applies them immediately. Each server's switch controls
@@ -136,7 +156,12 @@ If you changed the port, change it in the widget's settings too.
 
 **A server shows as failed.** The settings page prints the reason underneath its
 name. For Kodi that is usually remote control not being enabled; for Navidrome,
-a wrong URL or password.
+a wrong URL or password; for MPD, `bind_to_address` in `mpd.conf` not covering
+the address you gave.
+
+**MPD tracks will not play on the local speakers.** That is the music folder
+setting: without it the daemon has no path to the files, and MPD offers none.
+The widget will still play them on MPD itself.
 
 **Media keys do nothing.** MPRIS needs `python-dbus` and `python-gobject`. Check
 with `busctl --user list | grep mpris` — `org.mpris.MediaPlayer2.streamplay`
@@ -159,10 +184,11 @@ journalctl --user --since "2 minutes ago" | grep streamplay
 cd daemon
 python3 tests/test_player.py     # queue, shuffle, repeat, output switching, with real mpv
 python3 tests/test_protocol.py   # the control protocol, with two services connected
+python3 tests/test_mpd.py        # the MPD library and output, against a stub MPD
 ```
 
-Both are self-contained: they generate their own audio and use stub services, so
-no music server is needed.
+They are self-contained: they generate their own audio and use stub services,
+so no music server is needed.
 
 ## Control protocol
 

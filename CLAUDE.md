@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Plasma 6 widget for self-hosted music libraries (Navidrome/Subsonic and Kodi),
-split into a Python user service (`daemon/`) and a pure-QML applet
+A Plasma 6 widget for self-hosted music libraries (Navidrome/Subsonic, Kodi and
+MPD), split into a Python user service (`daemon/`) and a pure-QML applet
 (`plasmoid/`). The split is not optional: MPRIS2 and audio playback cannot be
 driven from QML, and keeping them in a daemon means music survives a
 plasmashell restart. See `README.md` for the user-facing description.
@@ -18,6 +18,7 @@ plasmashell restart. See `README.md` for the user-facing description.
 cd daemon
 python3 tests/test_player.py      # queue, shuffle, repeat, output switching, real mpv
 python3 tests/test_protocol.py    # control protocol, two services connected
+python3 tests/test_mpd.py         # MPD library + output against tests/fake_mpd.py
 
 # Run the daemon by hand (stop the service first if it is installed)
 systemctl --user stop streamplay
@@ -105,18 +106,45 @@ Neither the library nor the output owns the queue, and that is deliberate — it
 is what lets a Navidrome album and a Kodi album sit in one queue and play
 through either destination. Do not move queue state into a backend or a sink.
 
-Kodi appears **twice**: `KodiBackend` (library) and `KodiSink` (output), which
-are independent. The sink drives Kodi one track at a time with `Player.Open`
-and deliberately leaves Kodi's own playlist alone, because our queue is the
-source of truth. `_expect_stop` distinguishes our own stop from the user
-stopping playback on the Kodi box; `Player.OnStop` with `end: true` is the
+Kodi and MPD each appear **twice**: a `*Backend` (library) and a `*Sink`
+(output), which are independent. Both sinks drive their service one track at a
+time and deliberately leave its own playlist alone, because our queue is the
+source of truth. Adding another such service means adding it to `BACKEND_TYPES`
+*and* `PLAYBACK_TYPES` in `backends/__init__.py`, teaching `create_sink` about
+it, and setting `Sink.source` on the sink -- that is what lets `Hub._drop_source`
+tear the output down with the library without knowing any type names.
+
+Kodi's sink uses `Player.Open` and `_expect_stop` to tell our own stop from the
+user stopping playback on the Kodi box; `Player.OnStop` with `end: true` is the
 end-of-track signal.
+
+### MPD's two awkward corners
+
+- **It cannot say why it stopped.** `status` reports a bare `state: stop`
+  whether the song ran out or somebody pressed stop in ncmpcpp. `MpdSink` guesses
+  from how far in the track was, carrying the last position forward by wall-clock
+  time (`_note_position` / `_near_end`) -- a short track can start *and* end
+  between two polls, so the raw last reading is not enough. `_changing` covers
+  the opposite case: replacing the queue takes MPD through `stop`, and that
+  momentary stop must not be read as the track ending.
+- **It serves no audio.** There is no URL to hand to mpv or Kodi, so
+  `MpdBackend._local` turns MPD's relative path into a `file://` URL using the
+  profile's `musicDirectory`. Without it, MPD tracks only play on MPD, and
+  `stream_target` returns a target with `native` but no `url`.
+
+Two smaller things: `list ... group date` splits one album in two when its
+tracks disagree about the date, so `_album_list` folds the duplicates back
+together; and `list`/`find` match case-sensitively while `search` does not,
+which is why `MpdBackend.search` filters artists and albums in Python instead
+of asking MPD to.
 
 ### Sources and ids
 
 Every `Track`/`Album`/`Artist` carries a `source`, which is the profile id it
 came from. **Library ids are only unique within one service**, so any call that
-takes an id needs a source too. `library.*` methods without a `source` fan out
+takes an id needs a source too. MPD has no ids at all, so a tag value *is* the
+id there: a track's id is its path inside the music directory, an artist's is
+their name, and an album's is `albumartist + "\x1f" + album`. `library.*` methods without a `source` fan out
 across all connected services and merge; with one, they target it. `Backend.tag()`
 stamps the source on an item.
 
@@ -146,6 +174,11 @@ One WebSocket on `127.0.0.1:8760` carries JSON-RPC-ish calls
 same port serves cover art over plain HTTP at `/cover?src=…&id=…&size=…` via
 `websockets`' `process_request` hook, so QML's `Image` can load artwork and the
 applet never holds any credentials.
+
+Cover art normally comes from `Backend.cover_request()`, an HTTP URL the
+`CoverCache` fetches in a thread. MPD has no such URL -- it sends the image down
+the control connection in chunks -- so it implements `Backend.cover_bytes()`
+instead, which the cache tries first and runs on the event loop.
 
 `Client.qml` is the whole transport. Two things there matter:
 

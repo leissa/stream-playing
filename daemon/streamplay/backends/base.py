@@ -50,7 +50,7 @@ class StreamTarget:
 class Backend(abc.ABC):
     """Read-only access to a music library."""
 
-    #: ``subsonic`` / ``kodi``; also stamped onto every Track.
+    #: ``subsonic`` / ``kodi`` / ``mpd``; also stamped onto every Track.
     kind: str = ""
 
     def __init__(self, profile: dict[str, Any]) -> None:
@@ -106,6 +106,16 @@ class Backend(abc.ABC):
         """``(url, params, headers)`` to fetch cover art, or None if unsupported."""
         return None
 
+    async def cover_bytes(self, cover_id: str, size: int) -> bytes | None:
+        """Cover art fetched by the backend itself.
+
+        For services that do not hand out an HTTP URL for artwork -- MPD sends
+        it down the control connection -- and tried before
+        :meth:`cover_request`. Returning None means "nothing here", and the
+        cache falls back to the URL form.
+        """
+        return None
+
     async def scrobble(self, track: Track, submission: bool) -> None:
         return None
 
@@ -139,6 +149,9 @@ class Sink(abc.ABC):
     #: Identifier used on the wire, e.g. ``local`` or ``kodi:livingroom``.
     id: str = "sink"
     name: str = "Sink"
+    #: Profile id of the service this output belongs to, empty for the local
+    #: one. It is what lets the hub tear an output down with its library.
+    source: str = ""
     #: False when the sink can only play media from its own service.
     accepts_any_url: bool = True
 

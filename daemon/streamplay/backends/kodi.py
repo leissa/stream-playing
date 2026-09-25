@@ -324,6 +324,7 @@ class KodiSink(Sink):
     def __init__(self, backend: KodiBackend) -> None:
         super().__init__()
         self.backend = backend
+        self.source = backend.source
         self.id = f"kodi:{backend.source}"
         self.name = backend.name
         self._player_id: int | None = None
