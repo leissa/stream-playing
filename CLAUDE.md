@@ -197,6 +197,16 @@ in `hello`. `Service.qml` restarts a daemon that runs from its own `code`
 directory at another version, which is why `package.sh` refuses mismatched
 versions.
 
+### Icons
+
+`metadata.json` sets `"Icon": "/icons/streamplay.svg"`, a path relative to
+`plasmoid/package/contents/`, not an icon-theme name. Plasma's widget picker
+resolves an `Icon` starting with `/` inside the package, so the bundled logo
+also shows for a store install, which never touches the icon theme. Keep the
+leading slash; a bare name or `./foo.svg` falls back to a theme lookup and
+yields the generic plasmoid icon. `plasmoidviewer`'s own *About* page does not
+resolve this form, which is a plasmoidviewer artifact, not a packaging bug.
+
 ## Configuration and secrets
 
 `~/.config/streamplay/config.json`, mode 0600, holds everything but the

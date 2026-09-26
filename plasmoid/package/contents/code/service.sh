@@ -4,10 +4,6 @@
 
 here=$(cd "$(dirname "$0")" && pwd)
 unit=streamplay-applet
-icon=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/io.github.leissa.streamplay.svg
-
-# The widget picker only looks icons up in the theme, never in the package.
-[ -f "$icon" ] || install -Dm644 "$here/../icons/streamplay.svg" "$icon" 2>/dev/null
 
 [ -d "$here/streamplay" ] || exit 3
 export PYTHONPATH="$here" PYTHONDONTWRITEBYTECODE=1
