@@ -217,6 +217,10 @@ widget never needs any credentials.
 Anything that speaks WebSocket can drive it; `library.*`, `queue.*`, `player.*`,
 `sources.*`, `outputs.*` and `profiles.*` are the method groups.
 
+## Disclaimer
+
+This plugin was mostly created with the help of AI.
+
 ## Licence
 
 GPL-3.0-or-later; see [`LICENSE`](LICENSE).
