@@ -16,6 +16,7 @@ import wave
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
+from streamplay import player as player_module
 from streamplay.backends.base import Sink, SourceUnavailable, StreamTarget
 from streamplay.models import Track
 from streamplay.player import UnifiedPlayer
@@ -84,6 +85,13 @@ class Router:
         if library is not None:
             await library.scrobble(track, submission)
 
+    def unavailable(self, track: Track, sink: Sink | None) -> str | None:
+        if track.source not in self.libraries:
+            return f"{track.source} is not connected"
+        if sink is not None and not sink.plays(track):
+            return f"{sink.name} plays only its own library"
+        return None
+
 
 class FakeSink(Sink):
     """A silent output, so switching destinations can be tested offline."""
@@ -91,9 +99,14 @@ class FakeSink(Sink):
     id = "fake"
     name = "Fake output"
 
-    def __init__(self) -> None:
+    def __init__(self, own: str | None = None) -> None:
         super().__init__()
         self.played: list[str] = []
+        #: When set, the output refuses every other service, as Kodi and MPD do.
+        self.own = own
+
+    def plays(self, track: Track) -> bool:
+        return self.own is None or track.source == self.own
 
     async def play(self, target: StreamTarget, track: Track) -> None:
         self.played.append(track.title)
@@ -121,6 +134,15 @@ class FakeSink(Sink):
 
     async def set_volume(self, volume: float) -> None:
         self.state.volume = volume
+        self._changed()
+
+
+class DeadSink(FakeSink):
+    """Takes a track and then reports nothing playing, like Kodi refusing a URL."""
+
+    async def play(self, target: StreamTarget, track: Track) -> None:
+        await super().play(target, track)
+        self.state.status = "stopped"
         self._changed()
 
 
@@ -312,9 +334,55 @@ async def main() -> None:
         await player.set_sink(None, carry_over=False)
         await local.close()
 
+        await test_foreign_tracks_are_skipped(navidrome, kodi, router)
+        await test_output_that_never_starts(navidrome, router)
         await test_first_track_advances(navidrome, router)
         await test_gapless_handover(navidrome, router)
         await test_mpv_losing_its_socket()
+
+
+async def test_foreign_tracks_are_skipped(navidrome, kodi, router) -> None:
+    """An output bound to one service steps over the rest of the queue."""
+    player = UnifiedPlayer(router, lambda event, data: None, {"volume": 0.0})
+    await player.set_sink(FakeSink())
+    await player.enqueue(navidrome.tracks(2) + [kodi.tracks(1)[0]], mode="replace")
+    await asyncio.sleep(0.2)
+    check("the permissive output starts on the first track",
+          player.state()["track"]["source"] == "navidrome")
+
+    theirs = FakeSink("kodi-box")
+    await player.set_sink(theirs)
+    await asyncio.sleep(0.2)
+    state = player.state()
+    check("switching to an output that cannot reach a service skips to one it can",
+          state["status"] == "playing" and state["track"]["source"] == "kodi-box")
+    check("and only its own track was handed over", theirs.played == ["kodi-box 1"])
+
+    entries = player.queue()["tracks"]
+    check("the queue marks the stranded entries unavailable",
+          all(e.get("unavailable") for e in entries[:2])
+          and not entries[2].get("unavailable"))
+    check("naming the output that cannot play them",
+          "Fake output" in entries[0]["unavailable"])
+    await player.set_sink(None, carry_over=False)
+
+
+async def test_output_that_never_starts(library, router) -> None:
+    """A remote output can swallow a track silently; the queue must not park on it."""
+    player = UnifiedPlayer(router, lambda event, data: None, {"volume": 0.0})
+    sink = DeadSink()
+    await player.set_sink(sink)
+    saved, player_module.START_TIMEOUT = player_module.START_TIMEOUT, 0.3
+    try:
+        await player.enqueue(library.tracks(2), mode="replace")
+        await asyncio.sleep(1.4)
+    finally:
+        player_module.START_TIMEOUT = saved
+    check("a track the output never started is given up on",
+          sink.played == ["navidrome 1", "navidrome 2"])
+    check("and the queue ends up stopped rather than stuck",
+          player.state()["status"] == "stopped")
+    await player.set_sink(None, carry_over=False)
 
 
 async def test_first_track_advances(library, router) -> None:

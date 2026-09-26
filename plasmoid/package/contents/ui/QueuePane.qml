@@ -14,10 +14,17 @@ Item {
 
     readonly property var client: root.client
 
-    /* A queued track is dead weight while the service it came from is off. */
+    /* The daemon says why an entry cannot be played, on the chosen output or at
+       all; the source check keeps up between its queue pushes. */
     function playable(track) {
-        return !track || !track.source
-            || client.connectedSources.some(s => s.id === track.source);
+        return !track || (!track.unavailable
+            && (!track.source
+                || client.connectedSources.some(s => s.id === track.source)));
+    }
+
+    function reason(track) {
+        return track.unavailable
+            || i18n("%1 is not connected", client.sourceName(track.source));
     }
 
     function unplayableCount() {
@@ -176,10 +183,8 @@ Item {
                                                : "media-playback-pause")
 
                                     HoverHandler { id: markHover }
-                                    PlasmaComponents.ToolTip.text: i18n(
-                                        "%1 is not connected, so this track "
-                                        + "cannot be played",
-                                        client.sourceName(slot.modelData.source))
+                                    PlasmaComponents.ToolTip.text:
+                                        pane.reason(slot.modelData)
                                     PlasmaComponents.ToolTip.visible:
                                         row.unavailable && markHover.hovered
                                     PlasmaComponents.ToolTip.delay:

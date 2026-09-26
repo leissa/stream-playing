@@ -178,5 +178,9 @@ class Sink(abc.ABC):
         """A hint of what plays after the current track, None if nothing does."""
         return None
 
+    def plays(self, track: Track) -> bool:
+        """Whether this output can play a track from that service at all."""
+        return True
+
     def capabilities(self) -> dict[str, bool]:
         return {"seek": True, "volume": True}

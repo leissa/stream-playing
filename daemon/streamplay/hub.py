@@ -154,6 +154,10 @@ class Hub:
     def broadcast_state(self) -> None:
         self.emit("state", self.player.state())
 
+    def broadcast_queue(self) -> None:
+        """Which entries are playable depends on the services and the output."""
+        self.emit("queue", self.player.queue())
+
 
     def _decorate_state(self, state: dict[str, Any]) -> dict[str, Any]:
         state = dict(state)
@@ -284,12 +288,14 @@ class Hub:
 
             self._set_source_state(profile_id, "connected")
             self.broadcast_state()
+            self.broadcast_queue()
 
     async def disconnect_source(self, profile_id: str) -> None:
         async with self._lock:
             await self._drop_source(profile_id)
             self._set_source_state(profile_id, "disconnected")
             self.broadcast_state()
+            self.broadcast_queue()
 
     async def _drop_source(self, profile_id: str) -> None:
         """Tear down a service and anything that depended on it."""
@@ -333,14 +339,26 @@ class Hub:
         if persist:
             self.config.set_setting("output", sink.id)
         self.emit("state", self.player.state())
+        self.broadcast_queue()
 
+
+    def source_name(self, source: str) -> str:
+        profile = self.config.profiles.get(source)
+        return profile.name if profile else source
+
+    def unavailable(self, track: Track, sink: Sink | None) -> str | None:
+        """Why the track cannot be played as things stand, or None."""
+        if track.source not in self.sources:
+            return f"{self.source_name(track.source)} is not connected"
+        if sink is not None and not sink.plays(track):
+            return f"{sink.name} plays only its own library"
+        return None
 
     async def stream_target(self, track: Track):
         backend = self.sources.get(track.source)
         if backend is None:
-            name = self.config.profiles.get(track.source)
             raise SourceUnavailable(
-                f"{name.name if name else track.source} is not connected")
+                f"{self.source_name(track.source)} is not connected")
         return await backend.stream_target(track)
 
     async def scrobble(self, track: Track, submission: bool) -> None:

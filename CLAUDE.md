@@ -77,19 +77,27 @@ a module's `qmldir` before using a type not already used here.
 - `player.py: UnifiedPlayer` — owns the only queue, the play order, shuffle and
   repeat, and drives the selected sink.
 - `hub.py: Hub` — holds every connected backend and sink and resolves for the
-  player: `stream_target(track)`, `scrobble(track, submission)`. The player
-  never imports a backend.
+  player: `stream_target(track)`, `scrobble(track, submission)`,
+  `unavailable(track, sink)`. The player never imports a backend.
 
 Neither side owns the queue, which is what lets a Navidrome album and a Kodi
 album share one and play through either destination. Do not move queue state
 into a backend or a sink.
 
+`Sink.plays(track)` says whether an output can play a track from that service
+at all; Kodi and MPD accept only their own library. `Hub.unavailable(track,
+sink)` folds that together with "the service is not connected" into the one
+reason the player skips the entry over (`_step_over`) and `queue()` hands the
+applet as `unavailable`. `UnifiedPlayer._watch_start` is the net underneath: an
+output that takes a track and then reports nothing playing would otherwise park
+the queue on it for ever.
+
 Kodi and MPD each appear twice, as an independent `*Backend` and `*Sink`. Both
 sinks are handed one track at a time and leave the service's own playlist
 alone. To add another: `BACKEND_TYPES` *and* `PLAYBACK_TYPES` in
-`backends/__init__.py`, a `create_sink` branch, and `Sink.source` — that last
-one is how `Hub._drop_source` tears an output down with its library without
-knowing any type names.
+`backends/__init__.py`, a `create_sink` branch, `Sink.plays` and `Sink.source`
+— that last one is how `Hub._drop_source` tears an output down with its library
+without knowing any type names.
 
 ### Gapless handover
 

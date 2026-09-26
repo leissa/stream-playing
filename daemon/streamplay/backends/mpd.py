@@ -624,6 +624,9 @@ class MpdSink(Sink):
         return position >= self.state.duration - slack
 
 
+    def plays(self, track: Track) -> bool:
+        return track.source == self.backend.source
+
     def _uri_for(self, target: StreamTarget, track: Track) -> str:
         if target.native and target.source == self.backend.source:
             uri = str(target.native.get("uri") or "")

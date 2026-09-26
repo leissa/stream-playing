@@ -435,6 +435,9 @@ class KodiSink(Sink):
             pass
 
 
+    def plays(self, track: Track) -> bool:
+        return track.source == self.backend.source
+
     async def play(self, target: StreamTarget, track: Track) -> None:
         if target.native and target.source == self.backend.source:
             item = dict(target.native)

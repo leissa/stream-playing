@@ -19,13 +19,17 @@ log = logging.getLogger(__name__)
 #: Give up on a run of unplayable tracks instead of spinning through the queue.
 MAX_CONSECUTIVE_ERRORS = 5
 
+#: A remote output that never starts a track would otherwise park the queue on it.
+START_TIMEOUT = 10.0
+
 _uid_counter = itertools.count(1)
 
 
 class UnifiedPlayer:
     """Queue, play order and transport, independent of source and destination.
 
-    ``resolver`` supplies ``stream_target(track)`` and ``scrobble(track, submission)``.
+    ``resolver`` supplies ``stream_target(track)``, ``scrobble(track, submission)``
+    and ``unavailable(track, sink)``.
     """
 
     def __init__(self, resolver, emit: Callable[[str, dict], None],
@@ -53,6 +57,8 @@ class UnifiedPlayer:
         self._last_state: dict[str, Any] | None = None
         #: Bumped on every change to what comes next, so a slow resolve cannot win.
         self._preload_generation = 0
+        #: Bumped on every load, so a start watchdog knows it is stale.
+        self._load_token = 0
 
 
     @property
@@ -130,7 +136,17 @@ class UnifiedPlayer:
         }
 
     def queue(self) -> dict[str, Any]:
-        return {"tracks": [t.to_json() for t in self._tracks], "index": self._index}
+        tracks = []
+        for track in self._tracks:
+            entry = track.to_json()
+            reason = self._unavailable(track)
+            if reason is not None:
+                entry["unavailable"] = reason
+            tracks.append(entry)
+        return {"tracks": tracks, "index": self._index}
+
+    def _unavailable(self, track: Track) -> str | None:
+        return self._resolver.unavailable(track, self._sink)
 
     def _changed(self) -> None:
         state = self.state()
@@ -175,6 +191,8 @@ class UnifiedPlayer:
         index = self._peek(+1) if self._status != "stopped" else None
         track = self._tracks[index] if index is not None else None
         target = None
+        if track is not None and self._unavailable(track) is not None:
+            track = None
         if track is not None:
             try:
                 target = await self._resolver.stream_target(track)
@@ -234,7 +252,14 @@ class UnifiedPlayer:
         sink = self._require_sink()
         track = self._tracks[index]
 
+        reason = self._unavailable(track)
+        if reason is not None:
+            self._index = index
+            await self._step_over(reason)
+            return
+
         self._index = index
+        self._load_token += 1
         self._scrobbled = False
         self._started_at = time.monotonic()
         self._last_error = None
@@ -245,18 +270,7 @@ class UnifiedPlayer:
             target = await self._resolver.stream_target(track)
             await sink.play(target, track)
         except SourceUnavailable as exc:
-            # Step over it, giving up only once the whole queue has been tried.
-            self._skipped += 1
-            if self._skipped >= max(1, len(self._tracks)):
-                self._skipped = 0
-                self._last_error = (
-                    "Nothing in the queue can be played: "
-                    f"{exc}"
-                )
-                await self.stop()
-            else:
-                self._last_error = str(exc)
-                await self._advance(+1)
+            await self._step_over(str(exc))
             return
         except BackendError as exc:
             log.warning("cannot play %s: %s", track.title, exc)
@@ -280,7 +294,32 @@ class UnifiedPlayer:
             await sink.seek(seek_to)
         self._changed()
         self._schedule_preload()
+        asyncio.create_task(self._watch_start(self._load_token))
         asyncio.create_task(self._scrobble(track, submission=False))
+
+    async def _step_over(self, reason: str) -> None:
+        """Skip an entry nothing can play, giving up once the whole queue has been tried.
+        """
+        self._skipped += 1
+        if self._skipped >= max(1, len(self._tracks)):
+            self._skipped = 0
+            self._last_error = f"Nothing in the queue can be played: {reason}"
+            await self.stop()
+        else:
+            self._last_error = reason
+            await self._advance(+1)
+
+    async def _watch_start(self, token: int) -> None:
+        """An output that swallowed a track without a word must not park the queue.
+        """
+        await asyncio.sleep(START_TIMEOUT)
+        sink = self._sink
+        if token != self._load_token or sink is None or self._status != "playing":
+            return
+        if sink.state.status == "stopped" and not sink.state.buffering:
+            log.info("%s never started on %s",
+                     self.current.title if self.current else "the track", sink.name)
+            await self._on_sink_ended("error")
 
     async def _scrobble(self, track: Track, submission: bool) -> None:
         try:
